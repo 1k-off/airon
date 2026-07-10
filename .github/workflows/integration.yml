@@ -1,0 +1,33 @@
+name: Integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Provider E2E (live APIs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: OpenAI E2E
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_E2E_MODEL: gpt-4o-mini
+        run: go test -tags=integration ./internal/e2e/... -run TestE2E_OpenAI -count=1 -v
+
+      - name: Anthropic E2E
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_E2E_MODEL: claude-haiku-4-5
+        run: go test -tags=integration ./internal/e2e/... -run TestE2E_Anthropic -count=1 -v

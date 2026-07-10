@@ -7,5 +7,5 @@ coverage.out
 .idea/
 .vscode/
 docs/
-examples/
 .cursor/
+examples/*/workspace/

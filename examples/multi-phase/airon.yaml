@@ -1,0 +1,59 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o-mini
+  api_key: ${OPENAI_API_KEY}
+
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 10
+  max_call_depth: 2
+  save_outputs: true
+
+log:
+  level: info
+
+prompts:
+  - id: plan
+    system: |
+      You are a planning assistant. Output only a numbered plan (5-8 steps).
+    content: |
+      Create an execution plan for this topic:
+
+      {{topic}}
+    tools: [fs_write]
+
+  - id: research
+    depends_on: [plan]
+    system: |
+      You gather facts and constraints. Cite assumptions explicitly.
+    content: |
+      Execute the research phase using this plan:
+
+      {{plan}}
+
+      Save key findings to the workspace when useful.
+    tools: [fs_read, fs_write, fs_list]
+
+  - id: draft
+    depends_on: [research]
+    system: |
+      You write clear technical prose from notes.
+    content: |
+      Write a draft document from the research notes:
+
+      {{research}}
+    tools: [fs_write]
+
+  - id: finalize
+    depends_on: [draft]
+    system: |
+      You produce the final deliverable: title, summary, body, next steps.
+    content: |
+      Finalize this draft for the reader. Keep it under 500 words.
+
+      {{draft}}
+    tools: [fs_read, fs_write]

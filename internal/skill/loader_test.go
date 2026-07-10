@@ -112,3 +112,51 @@ func TestSkillTool_Execute_ProviderErrorIsWrapped(t *testing.T) {
 	assert.Contains(t, err.Error(), "provider complete")
 	assert.Contains(t, err.Error(), "provider unavailable")
 }
+
+func TestLoad_RejectsInvalidSkillNameFromFrontmatter(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdPath := filepath.Join(tmpDir, "bad-name.md")
+	content := `---
+name: Bad-Name
+description: Invalid skill name
+---
+Body
+`
+	require.NoError(t, os.WriteFile(mdPath, []byte(content), 0o644))
+
+	_, err := Load(mdPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid skill name")
+	assert.Contains(t, err.Error(), "Bad-Name")
+}
+
+func TestLoad_RejectsInvalidSkillNameFromFilename(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdPath := filepath.Join(tmpDir, "BadSkill.md")
+	content := `---
+description: Invalid skill name from filename
+---
+Body
+`
+	require.NoError(t, os.WriteFile(mdPath, []byte(content), 0o644))
+
+	_, err := Load(mdPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid skill name")
+	assert.Contains(t, err.Error(), "BadSkill")
+}
+
+func TestLoad_AcceptsValidSkillNamePatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdPath := filepath.Join(tmpDir, "my_skill-2.md")
+	content := `---
+description: Valid skill name
+---
+Body
+`
+	require.NoError(t, os.WriteFile(mdPath, []byte(content), 0o644))
+
+	toolInstance, err := Load(mdPath)
+	require.NoError(t, err)
+	assert.Equal(t, "my_skill-2", toolInstance.Name())
+}

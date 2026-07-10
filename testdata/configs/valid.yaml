@@ -17,7 +17,7 @@ log:
   level: info
 
 skills:
-  - path: ./skills/researcher
+  - path: ../skills/researcher
 
 agents:
   - id: analyst

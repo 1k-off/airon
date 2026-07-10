@@ -66,6 +66,11 @@ func (c *Client) Close() error {
 	return c.session.Close()
 }
 
+// NewClientForTest constructs a client with an injected session for cross-package tests.
+func NewClientForTest(serverName string, session sessionClient) *Client {
+	return &Client{serverName: serverName, session: session}
+}
+
 func (c *Client) listToolDefinitions(ctx context.Context) ([]*mcp.Tool, error) {
 	cursor := ""
 	allTools := make([]*mcp.Tool, 0)

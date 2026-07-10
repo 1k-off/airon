@@ -1,0 +1,46 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o-mini
+  api_key: ${OPENAI_API_KEY}
+
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 8
+  max_call_depth: 3
+  save_outputs: true
+
+log:
+  level: info
+
+skills:
+  - path: ./skills/technical-writer
+  - path: ./skills/fact-checker
+  - path: ./skills/tone-editor
+
+prompts:
+  - id: draft
+    system: |
+      You produce clear technical writing. Prefer short sections and bullet lists.
+    content: |
+      Write a first draft about:
+
+      {{input}}
+
+      Use the technical_writer skill for the main body.
+    tools: [technical_writer]
+
+  - id: review
+    depends_on: [draft]
+    content: |
+      Review and improve this draft:
+
+      {{draft}}
+
+      1. Use fact_checker to flag unsupported claims.
+      2. Use tone_editor to make the tone consistent and concise.
+      3. Return the final text only.
+    tools: [fact_checker, tone_editor, fs_write]

@@ -1,0 +1,46 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o-mini
+  api_key: ${OPENAI_API_KEY}
+
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 10
+  max_call_depth: 2
+
+log:
+  level: info
+
+mcp_servers:
+  - name: fmhy
+    transport: streamable_http
+    url: https://fmhy-mcp.ken.tools/mcp
+
+prompts:
+  - id: explore
+    system: |
+      You query the public FMHY MCP dataset. Use tools only; do not invent links.
+    content: |
+      Topic: {{input}}
+
+      1. Call fmhy__fmhy_list_sections to see top-level sections.
+      2. Call fmhy__fmhy_search with a query derived from the topic.
+      3. Return a bullet list of the 5 most relevant links from search results.
+    tools:
+      - fmhy__fmhy_list_sections
+      - fmhy__fmhy_search
+
+  - id: summary
+    depends_on: [explore]
+    content: |
+      FMHY search results:
+
+      {{explore}}
+
+      Write a short summary (3-5 sentences) of useful resources for the topic.
+      Save it to workspace/resources.md with fs_write.
+    tools: [fs_write]

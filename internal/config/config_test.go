@@ -43,7 +43,7 @@ func TestLoad(t *testing.T) {
 			setupEnv: func(t *testing.T) {
 				os.Unsetenv("OPENAI_API_KEY")
 			},
-			wantErr: "config: provider.api_key is required",
+			wantErr: "config: missing environment variable OPENAI_API_KEY",
 		},
 		{
 			name: "cyclic dependency fails",
@@ -135,4 +135,195 @@ prompts:
 	require.Len(t, loaded.MCPServers, 1)
 	assert.Equal(t, "Bearer secret-token", loaded.MCPServers[0].Headers["Authorization"])
 	assert.Equal(t, "https://example.com/mcp", loaded.MCPServers[0].URL)
+}
+
+func TestLoad_resolvesMCPServerArgsRelativeToConfigDir(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	require.NoError(t, os.MkdirAll(workspace, 0o755))
+
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+workspace:
+  path: ./workspace
+mcp_servers:
+  - name: fs
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	require.Len(t, loaded.MCPServers, 1)
+	require.Len(t, loaded.MCPServers[0].Args, 3)
+
+	wantWorkspace, err := filepath.Abs(workspace)
+	require.NoError(t, err)
+	assert.Equal(t, wantWorkspace, loaded.MCPServers[0].Args[2])
+}
+
+func TestLoad_missingEnvVarFails(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "agent.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+workspace:
+  path: ./workspace
+agents:
+  - id: analyst
+    description: Analyst
+    system_prompt: You are an analyst.
+    model: ${MISSING_AGENT_MODEL}
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+	os.Unsetenv("MISSING_AGENT_MODEL")
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing environment variable MISSING_AGENT_MODEL")
+}
+
+func TestExpandEnvString_missingVarReturnsError(t *testing.T) {
+	os.Unsetenv("AIRON_TEST_MISSING_VAR")
+
+	_, err := expandEnvString("prefix-${AIRON_TEST_MISSING_VAR}-suffix")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing environment variable AIRON_TEST_MISSING_VAR")
+}
+
+func TestLoad_validatesSkillPaths(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+skills:
+  - path: ./missing-skill
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "config: path not found:")
+	assert.Contains(t, err.Error(), "missing-skill")
+}
+
+func TestLoad_validatesSkillDirectoryRequiresSkillMarkdown(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "empty-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+skills:
+  - path: ./empty-skill
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "config: path not found:")
+	assert.Contains(t, err.Error(), "SKILL.md")
+}
+
+func TestLoad_validatesAgentSystemPromptFilePath(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+agents:
+  - id: analyst
+    description: Analyst
+    system_prompt: ./missing-prompt.md
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "config: path not found:")
+	assert.Contains(t, err.Error(), "missing-prompt.md")
+}
+
+func TestLoad_allowsInlineAgentSystemPrompt(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+agents:
+  - id: analyst
+    description: Analyst
+    system_prompt: You are a helpful analyst.
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	require.Len(t, loaded.Agents, 1)
+	assert.Equal(t, "You are a helpful analyst.", loaded.Agents[0].SystemPrompt)
+}
+
+func TestLoad_resolvesExistingAgentSystemPromptFile(t *testing.T) {
+	root := t.TempDir()
+	promptPath := filepath.Join(root, "analyst.md")
+	require.NoError(t, os.WriteFile(promptPath, []byte("You are a file-based analyst."), 0o644))
+
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+agents:
+  - id: analyst
+    description: Analyst
+    system_prompt: ./analyst.md
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	require.Len(t, loaded.Agents, 1)
+	assert.Equal(t, filepath.Clean(promptPath), filepath.Clean(loaded.Agents[0].SystemPrompt))
 }

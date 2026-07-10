@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/1node/airon/internal/provider"
 	"github.com/1node/airon/internal/tool"
 	"gopkg.in/yaml.v3"
 )
+
+var skillNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 type frontmatter struct {
 	Name        string `yaml:"name"`
@@ -32,9 +35,9 @@ func Load(path string) (tool.Tool, error) {
 		return nil, err
 	}
 
-	name := strings.TrimSpace(meta.Name)
-	if name == "" {
-		name = baseName
+	name, err := resolveSkillName(meta, baseName)
+	if err != nil {
+		return nil, err
 	}
 
 	return NewSkillTool(
@@ -74,9 +77,9 @@ func LoadConfigured(path string, providerClient provider.Provider, maxDepth int)
 		return nil, err
 	}
 
-	name := strings.TrimSpace(meta.Name)
-	if name == "" {
-		name = baseName
+	name, err := resolveSkillName(meta, baseName)
+	if err != nil {
+		return nil, err
 	}
 
 	return NewSkillTool(
@@ -98,6 +101,17 @@ func LoadAllConfigured(paths []string, providerClient provider.Provider, maxDept
 		tools = append(tools, loaded)
 	}
 	return tools, nil
+}
+
+func resolveSkillName(meta frontmatter, baseName string) (string, error) {
+	name := strings.TrimSpace(meta.Name)
+	if name == "" {
+		name = baseName
+	}
+	if !skillNamePattern.MatchString(name) {
+		return "", fmt.Errorf("invalid skill name %q: must match [a-z][a-z0-9_-]*", name)
+	}
+	return name, nil
 }
 
 func resolveSkillPath(path string) (string, string, error) {

@@ -42,6 +42,37 @@ func (m *mockSession) Close() error {
 	return m.closedErr
 }
 
+type pagingSession struct{}
+
+func (p *pagingSession) ListTools(_ context.Context, params *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
+	if params.Cursor == "" {
+		return &mcp.ListToolsResult{
+			Tools:      []*mcp.Tool{{Name: "first"}},
+			NextCursor: "page-2",
+		}, nil
+	}
+	return &mcp.ListToolsResult{
+		Tools: []*mcp.Tool{{Name: "second"}},
+	}, nil
+}
+
+func (p *pagingSession) CallTool(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+	return nil, nil
+}
+
+func (p *pagingSession) Close() error { return nil }
+
+func TestClient_listToolDefinitions_paginates(t *testing.T) {
+	t.Parallel()
+
+	client := &Client{serverName: "mock", session: &pagingSession{}}
+	tools, err := client.listToolDefinitions(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tools, 2)
+	assert.Equal(t, "first", tools[0].Name)
+	assert.Equal(t, "second", tools[1].Name)
+}
+
 func TestNamespacedToolName(t *testing.T) {
 	assert.Equal(t, "filesystem__read_file", namespacedToolName("filesystem", "read_file"))
 }

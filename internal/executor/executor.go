@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/1node/airon/internal/config"
+	"github.com/1node/airon/internal/depth"
 	"github.com/1node/airon/internal/provider"
 	"github.com/1node/airon/internal/template"
 	"github.com/1node/airon/internal/tool"
@@ -35,6 +36,7 @@ type StepResult struct {
 	StartedAt      time.Time
 	FinishedAt     time.Time
 	Error          string
+	Usage          provider.UsageStats
 }
 
 type RunResult struct {
@@ -43,6 +45,7 @@ type RunResult struct {
 	FinishedAt time.Time
 	Steps      []StepResult
 	Error      error
+	Usage      provider.UsageStats
 }
 
 type ExecutorConfig struct {
@@ -53,9 +56,11 @@ type ExecutorConfig struct {
 	Temperature   *float64
 	MaxToolRounds int
 	OnDelta       func(string)
+	OnStepComplete func(StepResult)
 	SaveOutputs   bool
 	Workspace     OutputWriter
 	FileReader    template.FileReader
+	UsageTracker  *provider.UsageTracker
 }
 
 // OutputWriter persists step outputs.
@@ -70,10 +75,12 @@ type Executor struct {
 	model         string
 	temperature   *float64
 	maxToolRounds int
-	onDelta       func(string)
-	saveOutputs   bool
+	onDelta        func(string)
+	onStepComplete func(StepResult)
+	saveOutputs    bool
 	workspace     OutputWriter
 	fileReader    template.FileReader
+	usageTracker  *provider.UsageTracker
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -92,10 +99,12 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		model:         cfg.Model,
 		temperature:   cfg.Temperature,
 		maxToolRounds: maxToolRounds,
-		onDelta:       cfg.OnDelta,
-		saveOutputs:   cfg.SaveOutputs,
+		onDelta:        cfg.OnDelta,
+		onStepComplete: cfg.OnStepComplete,
+		saveOutputs:    cfg.SaveOutputs,
 		workspace:     cfg.Workspace,
 		fileReader:    cfg.FileReader,
+		usageTracker:  cfg.UsageTracker,
 	}
 }
 
@@ -118,41 +127,26 @@ func (e *Executor) Run(ctx context.Context, input RunInput) (RunResult, error) {
 	for _, step := range sorted {
 		stepStart := time.Now()
 		stepResult := StepResult{ID: step.ID, StartedAt: stepStart}
+		if e.usageTracker != nil {
+			e.usageTracker.BeginStep(step.ID)
+		}
 
 		rendered, err := template.RenderWithFiles(step.Content, vars, e.fileReader)
 		if err != nil {
-			stepResult.Error = err.Error()
-			stepResult.Duration = time.Since(stepStart)
-			stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
-			result.Steps = append(result.Steps, stepResult)
-			result.FinishedAt = time.Now()
-			result.Error = err
-			return result, err
+			return e.failStep(&result, stepResult, stepStart, err)
 		}
 		stepResult.RenderedPrompt = rendered
 
 		tools, allowed, err := e.stepTools(step.Tools)
 		if err != nil {
-			stepResult.Error = err.Error()
-			stepResult.Duration = time.Since(stepStart)
-			stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
-			result.Steps = append(result.Steps, stepResult)
-			result.FinishedAt = time.Now()
-			result.Error = err
-			return result, err
+			return e.failStep(&result, stepResult, stepStart, err)
 		}
 
 		messages := make([]provider.Message, 0, 2)
 		if step.System != "" {
 			systemPrompt, err := template.RenderWithFiles(step.System, vars, e.fileReader)
 			if err != nil {
-				stepResult.Error = err.Error()
-				stepResult.Duration = time.Since(stepStart)
-				stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
-				result.Steps = append(result.Steps, stepResult)
-				result.FinishedAt = time.Now()
-				result.Error = err
-				return result, err
+				return e.failStep(&result, stepResult, stepStart, err)
 			}
 			messages = append(messages, provider.Message{
 				Role:    provider.RoleSystem,
@@ -169,12 +163,7 @@ func (e *Executor) Run(ctx context.Context, input RunInput) (RunResult, error) {
 			stepResult.Error = err.Error()
 			stepResult.Rounds = rounds
 			stepResult.ToolCalls = calls
-			stepResult.Duration = time.Since(stepStart)
-			stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
-			result.Steps = append(result.Steps, stepResult)
-			result.FinishedAt = time.Now()
-			result.Error = err
-			return result, err
+			return e.failStep(&result, stepResult, stepStart, err)
 		}
 
 		stepResult.Output = output
@@ -182,21 +171,46 @@ func (e *Executor) Run(ctx context.Context, input RunInput) (RunResult, error) {
 		stepResult.ToolCalls = calls
 		stepResult.Duration = time.Since(stepStart)
 		stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
+		if e.usageTracker != nil {
+			stepResult.Usage = e.usageTracker.EndStep()
+		}
 		result.Steps = append(result.Steps, stepResult)
+		if e.onStepComplete != nil {
+			e.onStepComplete(stepResult)
+		}
 		vars[step.ID] = output
 
 		if e.saveOutputs && e.workspace != nil && output != "" {
 			if writeErr := e.workspace.WriteStepOutput(step.ID, output); writeErr != nil {
-				stepResult.Error = writeErr.Error()
-				result.FinishedAt = time.Now()
-				result.Error = writeErr
-				return result, writeErr
+				return e.failStep(&result, stepResult, stepStart, writeErr)
 			}
 		}
 	}
 
 	result.FinishedAt = time.Now()
+	if e.usageTracker != nil {
+		result.Usage = e.usageTracker.TotalStats()
+	}
 	return result, nil
+}
+
+func (e *Executor) failStep(result *RunResult, stepResult StepResult, stepStart time.Time, err error) (RunResult, error) {
+	stepResult.Error = err.Error()
+	stepResult.Duration = time.Since(stepStart)
+	stepResult.FinishedAt = stepStart.Add(stepResult.Duration)
+	if e.usageTracker != nil {
+		stepResult.Usage = e.usageTracker.EndStep()
+	}
+	result.Steps = append(result.Steps, stepResult)
+	if e.onStepComplete != nil {
+		e.onStepComplete(stepResult)
+	}
+	result.FinishedAt = time.Now()
+	result.Error = err
+	if e.usageTracker != nil {
+		result.Usage = e.usageTracker.TotalStats()
+	}
+	return *result, err
 }
 
 func (e *Executor) runStep(
@@ -237,7 +251,7 @@ func (e *Executor) runStep(
 			if !ok {
 				toolResult = fmt.Sprintf("error: tool %q is not allowed in this step", call.Name)
 			} else {
-				toolResult, execErr = target.Execute(ctx, []byte(call.Arguments))
+				toolResult, execErr = target.Execute(depth.WithIncrement(ctx), []byte(call.Arguments))
 				if execErr != nil {
 					toolResult = fmt.Sprintf("error: %v", execErr)
 					execErr = nil
@@ -250,6 +264,7 @@ func (e *Executor) runStep(
 				Arguments: call.Arguments,
 				Result:    toolResult,
 				Duration:  time.Since(callStart),
+				Depth:     depth.FromContext(ctx),
 			}
 			if execErr != nil {
 				callRecord.Error = execErr.Error()

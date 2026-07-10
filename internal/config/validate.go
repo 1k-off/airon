@@ -1,6 +1,11 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 const supportedVersion = "1"
 
@@ -28,7 +33,82 @@ func validate(cfg *Config) error {
 		}
 	}
 
+	if err := validatePaths(cfg); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func validatePaths(cfg *Config) error {
+	for _, skill := range cfg.Skills {
+		if err := validateSkillPath(skill.Path); err != nil {
+			return err
+		}
+	}
+
+	for _, agent := range cfg.Agents {
+		if err := validateAgentSystemPromptPath(agent.SystemPrompt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateSkillPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("config: path not found: %s", path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("config: path not found: %s", path)
+	}
+
+	if info.IsDir() {
+		skillMD := filepath.Join(path, "SKILL.md")
+		if _, err := os.Stat(skillMD); err != nil {
+			return fmt.Errorf("config: path not found: %s", skillMD)
+		}
+	}
+
+	return nil
+}
+
+func validateAgentSystemPromptPath(value string) error {
+	if value == "" || !looksLikeFilePath(value) {
+		return nil
+	}
+
+	info, err := os.Stat(value)
+	if err != nil {
+		return fmt.Errorf("config: path not found: %s", value)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("config: path not found: %s", value)
+	}
+
+	return nil
+}
+
+func looksLikeFilePath(value string) bool {
+	if filepath.IsAbs(value) {
+		return true
+	}
+	if strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
+		return true
+	}
+	if strings.Contains(value, "/") || strings.Contains(value, "\\") {
+		return true
+	}
+
+	switch strings.ToLower(filepath.Ext(value)) {
+	case ".md", ".txt", ".prompt", ".yaml", ".yml":
+		return true
+	}
+
+	return false
 }
 
 func validateMCPServer(server MCPServerConfig) error {

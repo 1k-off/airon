@@ -256,22 +256,23 @@ func expandEnvString(value string) (string, error) {
 		return value, nil
 	}
 
-	expanded := envVarPattern.ReplaceAllStringFunc(value, func(match string) string {
-		submatches := envVarPattern.FindStringSubmatch(match)
-		if len(submatches) < 2 {
-			return match
-		}
+	matches := envVarPattern.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return value, nil
+	}
 
-		name := submatches[1]
+	result := value
+	for i := len(matches) - 1; i >= 0; i-- {
+		match := matches[i]
+		name := value[match[2]:match[3]]
 		envValue, ok := os.LookupEnv(name)
 		if !ok {
-			return ""
+			return "", fmt.Errorf("config: missing environment variable %s", name)
 		}
+		result = result[:match[0]] + envValue + result[match[1]:]
+	}
 
-		return envValue
-	})
-
-	return expanded, nil
+	return result, nil
 }
 
 func resolvePaths(cfg *Config, baseDir string) {
@@ -285,9 +286,19 @@ func resolvePaths(cfg *Config, baseDir string) {
 		cfg.Agents[i].SystemPrompt = resolveOptionalPath(baseDir, cfg.Agents[i].SystemPrompt)
 	}
 
+	for i := range cfg.MCPServers {
+		resolveMCPServerPaths(baseDir, &cfg.MCPServers[i])
+	}
+
 	for i := range cfg.Prompts {
 		cfg.Prompts[i].System = resolveContentPath(baseDir, cfg.Prompts[i].System)
 		cfg.Prompts[i].Content = resolveContentPath(baseDir, cfg.Prompts[i].Content)
+	}
+}
+
+func resolveMCPServerPaths(baseDir string, server *MCPServerConfig) {
+	for i, arg := range server.Args {
+		server.Args[i] = resolveOptionalPath(baseDir, arg)
 	}
 }
 

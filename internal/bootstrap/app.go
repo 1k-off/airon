@@ -62,12 +62,14 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 	}
 
 	providerClient := injectedProvider
+	usageTracker := provider.NewUsageTracker()
 	if providerClient == nil {
 		providerClient, err = provider.NewFromConfig(cfg.Provider)
 		if err != nil {
 			return nil, err
 		}
 	}
+	providerClient = provider.NewTrackingProvider(providerClient, cfg.Provider.Model, usageTracker)
 
 	allTools := make([]tool.Tool, 0)
 	allTools = append(allTools, builtin.NewFSTools(ws)...)
@@ -154,6 +156,8 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		return string(data), nil
 	}
 
+	logger := runlog.NewLogger(ws, newHumanLogger(cfg.Log.Level))
+
 	exec := executor.NewExecutor(executor.ExecutorConfig{
 		Provider:      providerClient,
 		Registry:      registry,
@@ -162,9 +166,13 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		Temperature:   cfg.Provider.Temperature,
 		MaxToolRounds: cfg.EffectiveMaxToolRounds(),
 		OnDelta:       onDelta,
-		SaveOutputs:   cfg.EffectiveSaveOutputs(),
-		Workspace:     executor.NewWorkspaceOutputWriter(ws),
-		FileReader:    fileReader,
+		OnStepComplete: func(step executor.StepResult) {
+			logger.LogStep(toStepRecord(step))
+		},
+		SaveOutputs:  cfg.EffectiveSaveOutputs(),
+		Workspace:    executor.NewWorkspaceOutputWriter(ws),
+		FileReader:   fileReader,
+		UsageTracker: usageTracker,
 	})
 
 	app := &App{
@@ -175,7 +183,7 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		provider:   providerClient,
 		registry:   registry,
 		executor:   exec,
-		logger:     runlog.NewLogger(ws, newHumanLogger(cfg.Log.Level)),
+		logger:     logger,
 		mcpClients: mcpClients,
 	}
 	return app, nil
@@ -188,9 +196,7 @@ func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
 
 	stepRecords := make([]runlog.StepRecord, 0, len(result.Steps))
 	for _, step := range result.Steps {
-		record := toStepRecord(step)
-		a.logger.LogStep(record)
-		stepRecords = append(stepRecords, record)
+		stepRecords = append(stepRecords, toStepRecord(step))
 	}
 
 	runRecord := runlog.RunRecord{
@@ -198,6 +204,7 @@ func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
 		ConfigPath: a.configPath,
 		Input:      cloneInput(a.input),
 		Steps:      stepRecords,
+		Usage:      toUsageRecord(result.Usage),
 		StartedAt:  result.StartedAt,
 		FinishedAt: result.FinishedAt,
 	}
@@ -254,10 +261,34 @@ func toStepRecord(step executor.StepResult) runlog.StepRecord {
 		Output:         step.Output,
 		ToolCalls:      toolCalls,
 		Rounds:         step.Rounds,
+		Usage:          toUsageRecord(step.Usage),
 		StartedAt:      step.StartedAt,
 		FinishedAt:     step.FinishedAt,
 		Error:          step.Error,
 	}
+}
+
+func toUsageRecord(stats provider.UsageStats) *runlog.UsageRecord {
+	if stats.TotalTokens == 0 && stats.PromptTokens == 0 && stats.CompletionTokens == 0 {
+		return nil
+	}
+	record := &runlog.UsageRecord{
+		PromptTokens:     stats.PromptTokens,
+		CompletionTokens: stats.CompletionTokens,
+		TotalTokens:      stats.TotalTokens,
+	}
+	if len(stats.ByModel) > 0 {
+		record.ByModel = make([]runlog.ModelUsageRecord, 0, len(stats.ByModel))
+		for _, model := range stats.ByModel {
+			record.ByModel = append(record.ByModel, runlog.ModelUsageRecord{
+				Model:            model.Model,
+				PromptTokens:     model.PromptTokens,
+				CompletionTokens: model.CompletionTokens,
+				TotalTokens:      model.TotalTokens,
+			})
+		}
+	}
+	return record
 }
 
 func cloneInput(input map[string]string) map[string]string {

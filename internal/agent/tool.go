@@ -101,7 +101,7 @@ func (a *agentTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 				result = fmt.Sprintf("error: agent tool %q is not allowed", call.Name)
 			} else {
 				var execErr error
-				result, execErr = target.Execute(subCtx, json.RawMessage(call.Arguments))
+				result, execErr = target.Execute(depth.WithIncrement(subCtx), json.RawMessage(call.Arguments))
 				if execErr != nil {
 					result = fmt.Sprintf("error: %v", execErr)
 				}

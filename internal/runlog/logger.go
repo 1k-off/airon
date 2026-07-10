@@ -20,12 +20,27 @@ type ToolCallRecord struct {
 	Depth     int    `json:"depth"`
 }
 
+type ModelUsageRecord struct {
+	Model            string `json:"model"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+}
+
+type UsageRecord struct {
+	PromptTokens     int                `json:"prompt_tokens"`
+	CompletionTokens int                `json:"completion_tokens"`
+	TotalTokens      int                `json:"total_tokens"`
+	ByModel          []ModelUsageRecord `json:"by_model,omitempty"`
+}
+
 type StepRecord struct {
 	ID             string           `json:"id"`
 	RenderedPrompt string           `json:"rendered_prompt"`
 	Output         string           `json:"output"`
 	ToolCalls      []ToolCallRecord `json:"tool_calls"`
 	Rounds         int              `json:"rounds"`
+	Usage          *UsageRecord     `json:"usage,omitempty"`
 	StartedAt      time.Time        `json:"started_at"`
 	FinishedAt     time.Time        `json:"finished_at"`
 	Error          string           `json:"error,omitempty"`
@@ -36,6 +51,7 @@ type RunRecord struct {
 	ConfigPath string            `json:"config_path"`
 	Input      map[string]string `json:"input"`
 	Steps      []StepRecord      `json:"steps"`
+	Usage      *UsageRecord      `json:"usage,omitempty"`
 	StartedAt  time.Time         `json:"started_at"`
 	FinishedAt time.Time         `json:"finished_at"`
 	Error      string            `json:"error,omitempty"`
@@ -77,6 +93,13 @@ func (l *jsonLogger) LogStep(record StepRecord) {
 		attrs = append(attrs, "error", record.Error)
 		l.logger.Error("step failed", attrs...)
 		return
+	}
+	if record.Usage != nil && record.Usage.TotalTokens > 0 {
+		attrs = append(attrs,
+			"prompt_tokens", record.Usage.PromptTokens,
+			"completion_tokens", record.Usage.CompletionTokens,
+			"total_tokens", record.Usage.TotalTokens,
+		)
 	}
 	l.logger.Info("step completed", attrs...)
 }

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & Race & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Unit tests
+        run: go test ./... -count=1
+
+      - name: Race detector
+        run: go test -race ./... -count=1
+
+      - name: Coverage per package
+        run: bash scripts/check-coverage.sh 80
+
+      - name: Build
+        run: go build -o bin/airon ./cmd/airon/

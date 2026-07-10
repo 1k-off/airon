@@ -1,22 +1,45 @@
 # airon
 
-`airon` is a lightweight Go runtime for orchestrating prompt pipelines with tools, skills, agents, and optional MCP servers.
+`airon` is an **AI-powered cron** — a Go runtime for autonomously running AI jobs on a schedule or on demand.
+
+You give it a config: LLM **provider** and **model**, a pipeline of **prompts**, optional **skills** and **agents**, and **MCP servers** for external tools. It executes the pipeline, calls tools as needed, and returns the **result** (step outputs, workspace artifacts, and a JSON run log).
+
+Under the hood it is a lightweight orchestrator for prompt pipelines with tool calling, skill delegation, and MCP integration — designed to be wired into cron, CI, or any job runner that needs a deterministic `run` → `output` contract.
 
 ## Quick Start
 
-1. Export your API key:
-   - PowerShell: `$env:OPENAI_API_KEY="your-key"`
-   - Bash: `export OPENAI_API_KEY="your-key"`
-2. Run the example:
-   - `go run ./cmd/airon run --config ./examples/simple/airon.yaml --input "Go testing best practices"`
-3. Grafana + MCP (query metrics over HTTP):
-   - See `examples/grafana/airon-stdio.yaml`
-4. Google Ads MCP (HTTP + Bearer auth):
-   - See `examples/google-ads/airon.yaml`
-5. Check run logs:
-   - `examples/simple/workspace/logs/<run_id>.json`
+1. Export your API key (match `provider.type` in `airon.yaml`):
+   - OpenAI — PowerShell: `$env:OPENAI_API_KEY="your-key"` / Bash: `export OPENAI_API_KEY="your-key"`
+   - Anthropic — PowerShell: `$env:ANTHROPIC_API_KEY="your-key"` / Bash: `export ANTHROPIC_API_KEY="your-key"`
+2. Pick an example (see [examples/README.md](./examples/README.md)):
+   - **simple** — skills + agent: `go run ./cmd/airon run --config ./examples/simple/airon.yaml --input "Go testing best practices"`
+   - **custom-skills** — multiple custom `SKILL.md` tools
+   - **multi-phase** — four-step pipeline with `depends_on`
+   - **mcp-stdio** — local MCP over stdio (filesystem server)
+   - **mcp-http** — public HTTP MCP (FMHY dataset, no auth)
+   - **full** — skills + stdio MCP + HTTP MCP + multi-phase prompts
+3. Check run logs:
+   - JSON: `examples/<name>/workspace/logs/<run_id>.json`
+   - Stderr prints each step as it finishes (`step`, `rounds`, `tool_calls`, `duration`, token counts)
 4. Optional: stream assistant text to stdout:
-   - `go run ./cmd/airon run --config ./examples/simple/airon.yaml --input "topic" --stream`
+   - add `--stream` to any `run` command
+
+### Run log usage
+
+Each step and the full run record token usage (no cost estimates):
+
+```json
+"usage": {
+  "prompt_tokens": 12500,
+  "completion_tokens": 3200,
+  "total_tokens": 15700,
+  "by_model": [
+    { "model": "gpt-4o-mini", "prompt_tokens": 10000, "completion_tokens": 2500, "total_tokens": 12500 }
+  ]
+}
+```
+
+Nested skill/agent calls are included in the step that invoked them.
 
 ## Config Summary
 
@@ -33,6 +56,7 @@
 - `agents`: optional agent tools with system prompt and tool scope.
 - `mcp_servers`: optional MCP servers (`stdio`, `streamable_http`, `sse`), each namespaced as `<server>__<tool>`.
 - `prompts`: ordered DAG of prompt steps (`id`, `content`, `tools`, `depends_on`).
+- `log.level`: stderr log level (`debug`, `info`, `warn`, `error`; default `info`).
 
 ### MCP server transports
 
@@ -87,4 +111,25 @@ Exit codes:
 ```bash
 go test ./...
 go build -o bin/airon ./cmd/airon/
+
+# Full local gate (unit + race + 80% coverage + build)
+make ci                    # Linux/macOS
+powershell -File scripts/ci.ps1   # Windows (race needs gcc/CGO)
+
+# Live provider E2E (requires API keys)
+make test-integration
+powershell -File scripts/test-integration.ps1
+
+# Optional overrides for E2E models (defaults: gpt-4o-mini, claude-haiku-4-5)
+export OPENAI_E2E_MODEL=gpt-4o-mini
+export ANTHROPIC_E2E_MODEL=claude-haiku-4-5
 ```
+
+### CI (GitHub Actions)
+
+| Workflow | Trigger | What it runs |
+|---|---|---|
+| [ci.yml](./.github/workflows/ci.yml) | push/PR to `main`/`master`, manual | unit tests, `-race`, 80% coverage gate, build |
+| [integration.yml](./.github/workflows/integration.yml) | manual only | live OpenAI + Anthropic E2E (`gpt-4o-mini`, `claude-haiku-4-5`) |
+
+Integration workflow expects repository secrets `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.

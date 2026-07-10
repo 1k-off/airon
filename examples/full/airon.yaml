@@ -1,0 +1,143 @@
+# Full example — run from repository root
+#
+# OpenAI (default provider below):
+#   PowerShell:
+#     $env:OPENAI_API_KEY = "sk-..."
+#     go run ./cmd/airon run --config ./examples/full/airon.yaml --input "Observability for a Go microservice"
+#   Bash:
+#     export OPENAI_API_KEY="sk-..."
+#     go run ./cmd/airon run --config ./examples/full/airon.yaml --input "Observability for a Go microservice"
+#
+# Claude: comment out the openai provider block and uncomment the anthropic block
+#   PowerShell:
+#     $env:ANTHROPIC_API_KEY = "sk-ant-..."
+#     go run ./cmd/airon run --config ./examples/full/airon.yaml --input "Observability for a Go microservice"
+#
+# Optional flags:
+#   --stream              print assistant tokens to stdout
+#   --var key=value       extra template variables
+#
+# Requires Node.js/npx for the stdio filesystem MCP (fs).
+
+version: "1"
+
+# provider:
+#   type: openai
+#   model: gpt-4o
+#   api_key: ${OPENAI_API_KEY}
+
+provider:
+  type: anthropic
+  model: claude-haiku-4-5
+  api_key: ${ANTHROPIC_API_KEY}
+  # temperature: 0.7
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 6
+  max_call_depth: 3
+  save_outputs: true
+
+log:
+  level: info
+
+skills:
+  - path: ./skills/researcher
+  - path: ./skills/writer
+  - path: ./skills/editor
+
+mcp_servers:
+  - name: fs
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "./workspace"
+
+  - name: fmhy
+    transport: streamable_http
+    url: https://fmhy-mcp.ken.tools/mcp
+
+prompts:
+  - id: discover
+    system: |
+      You prepare the workspace and confirm external data sources are reachable.
+    content: |
+      Topic: {{input}}
+
+      1. Use fs__list_allowed_directories and fs__directory_tree (depth 2).
+      2. Call fmhy__fmhy_list_sections to confirm the HTTP MCP is reachable.
+      3. Return a short inventory: workspace state + a few FMHY section names relevant to the topic.
+    tools:
+      - fs__list_allowed_directories
+      - fs__directory_tree
+      - fmhy__fmhy_list_sections
+
+  - id: research
+    depends_on: [discover]
+    content: |
+      Discovery notes:
+
+      {{discover}}
+
+      Topic: {{input}}
+
+      Keep this step lean:
+      1. Run fmhy__fmhy_search once with a focused query.
+      2. Call the researcher skill once to summarize findings (max ~800 words).
+      3. Save notes to workspace/notes.md via fs__write_file.
+      Do not repeat searches or re-invoke the researcher.
+    tools:
+      - researcher
+      - fmhy__fmhy_search
+      - fs__write_file
+
+  - id: draft
+    depends_on: [research]
+    content: |
+      Topic: {{input}}
+
+      Read workspace/notes.md with fs__read_file.
+      Use the writer skill once to produce a draft guide (max ~1200 words).
+      Save it to workspace/draft.md via fs__write_file.
+    tools:
+      - writer
+      - fs__write_file
+      - fs__read_file
+
+  - id: edit
+    depends_on: [draft]
+    content: |
+      Draft:
+
+      {{draft}}
+
+      1. Read workspace/draft.md with fs__read_file.
+      2. Use the editor skill to review the draft (clarity, gaps, weak claims).
+      3. Use fmhy__fmhy_search to find 2-3 links that fill gaps in the draft.
+      4. Return an edit brief: issues found + links to add.
+    tools:
+      - editor
+      - fmhy__fmhy_search
+      - fs__read_file
+
+  - id: publish
+    depends_on: [edit]
+    content: |
+      Draft:
+
+      {{draft}}
+
+      Edit brief:
+
+      {{edit}}
+
+      Topic: {{input}}
+
+      Produce the final guide: apply the edit brief, add a "Further reading" section with FMHY links.
+      Write the result to workspace/final.md using fs__write_file.
+    tools:
+      - fs__write_file
+      - fs__read_file

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/1node/airon/internal/config"
+	"github.com/1node/airon/internal/depth"
 	"github.com/1node/airon/internal/provider"
 	"github.com/1node/airon/internal/skill"
 	"github.com/1node/airon/internal/tool"
@@ -274,6 +275,51 @@ func TestExecutor_Run_invokesSkillTool(t *testing.T) {
 	assert.Equal(t, "skill findings", mp.requests[1].Messages[2].Content)
 }
 
+type depthCapturingTool struct {
+	executeDepth int
+}
+
+func (d *depthCapturingTool) Name() string        { return "depth_probe" }
+func (d *depthCapturingTool) Description() string { return "Captures execution depth" }
+func (d *depthCapturingTool) Parameters() map[string]any {
+	return map[string]any{"type": "object"}
+}
+func (d *depthCapturingTool) Execute(ctx context.Context, _ json.RawMessage) (string, error) {
+	d.executeDepth = depth.FromContext(ctx)
+	return "probed", nil
+}
+
+func TestExecutor_Run_recordsToolCallDepthFromContext(t *testing.T) {
+	probe := &depthCapturingTool{}
+	mp := &mockProvider{
+		responses: []provider.CompletionResponse{
+			{
+				ToolCalls: []provider.ToolCall{
+					{ID: "call-1", Name: "depth_probe", Arguments: `{}`},
+				},
+			},
+			{Content: "done"},
+		},
+	}
+	reg, err := tool.NewRegistry(probe)
+	require.NoError(t, err)
+
+	exec := NewExecutor(ExecutorConfig{
+		Provider:      mp,
+		Registry:      reg,
+		Prompts:       []config.Prompt{{ID: "step1", Content: "go", Tools: []string{"depth_probe"}}},
+		MaxToolRounds: 3,
+	})
+
+	ctx := depth.WithIncrement(context.Background())
+	result, err := exec.Run(ctx, RunInput{})
+	require.NoError(t, err)
+	require.Len(t, result.Steps, 1)
+	require.Len(t, result.Steps[0].ToolCalls, 1)
+	assert.Equal(t, 1, result.Steps[0].ToolCalls[0].Depth)
+	assert.Equal(t, 2, probe.executeDepth)
+}
+
 func TestExecutor_Run_saveOutputsWritesFile(t *testing.T) {
 	root := t.TempDir()
 	ws, err := workspace.NewManager(root)
@@ -300,4 +346,33 @@ func TestExecutor_Run_saveOutputsWritesFile(t *testing.T) {
 	data, err := ws.Read("outputs/draft.md")
 	require.NoError(t, err)
 	assert.Equal(t, "saved text", string(data))
+}
+
+func TestExecutor_Run_recordsUsagePerStepAndTotal(t *testing.T) {
+	tracker := provider.NewUsageTracker()
+	mp := &mockProvider{
+		responses: []provider.CompletionResponse{
+			{Content: "first", Usage: &provider.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}},
+			{Content: "second", Usage: &provider.TokenUsage{PromptTokens: 20, CompletionTokens: 10, TotalTokens: 30}},
+		},
+	}
+	tracked := provider.NewTrackingProvider(mp, "gpt-4o-mini", tracker)
+	reg, err := tool.NewRegistry()
+	require.NoError(t, err)
+
+	exec := NewExecutor(ExecutorConfig{
+		Provider:      tracked,
+		Registry:      reg,
+		UsageTracker:  tracker,
+		Prompts:       []config.Prompt{{ID: "step1", Content: "one"}, {ID: "step2", DependsOn: []string{"step1"}, Content: "two {{step1}}"}},
+		MaxToolRounds: 2,
+		Model:         "gpt-4o-mini",
+	})
+
+	result, err := exec.Run(context.Background(), RunInput{})
+	require.NoError(t, err)
+	require.Len(t, result.Steps, 2)
+	assert.Equal(t, 15, result.Steps[0].Usage.TotalTokens)
+	assert.Equal(t, 30, result.Steps[1].Usage.TotalTokens)
+	assert.Equal(t, 45, result.Usage.TotalTokens)
 }

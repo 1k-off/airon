@@ -1,0 +1,46 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 10
+  max_call_depth: 3
+  save_outputs: true
+
+log:
+  level: info
+
+skills:
+  - path: ./skills/researcher
+  - path: ./skills/writer
+
+agents:
+  - id: analyst
+    description: Analyze notes and identify gaps
+    system_prompt: You are a careful analyst who checks claims for evidence.
+    model: gpt-4o-mini
+    tools: [fs_read, fs_list]
+
+mcp_servers: []
+
+prompts:
+  - id: research
+    content: |
+      Research the following topic and provide key points:
+
+      {{input}}
+    tools: [researcher]
+
+  - id: report
+    depends_on: [research]
+    content: |
+      Write a concise report based on this research:
+
+      {{research}}
+    tools: [writer, analyst, fs_write]

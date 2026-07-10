@@ -47,7 +47,12 @@ func TestLogger_FlushWritesRunRecordJSON(t *testing.T) {
 		Input: map[string]string{
 			"input": "hello",
 		},
-		Steps:      []StepRecord{step},
+		Steps: []StepRecord{step},
+		Usage: &UsageRecord{
+			PromptTokens:     30,
+			CompletionTokens: 15,
+			TotalTokens:      45,
+		},
 		StartedAt:  start,
 		FinishedAt: finish,
 	}
@@ -65,5 +70,7 @@ func TestLogger_FlushWritesRunRecordJSON(t *testing.T) {
 	require.Len(t, decoded.Steps, 1)
 	assert.Equal(t, "research", decoded.Steps[0].ID)
 	assert.Equal(t, "1ms", decoded.Steps[0].ToolCalls[0].Duration)
+	require.NotNil(t, decoded.Usage)
+	assert.Equal(t, 45, decoded.Usage.TotalTokens)
 	assert.NotEmpty(t, logBuffer.String())
 }
