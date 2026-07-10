@@ -1,0 +1,14 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+
+prompts:
+  - id: step_a
+    content: "Step A"
+    depends_on: [step_b]
+  - id: step_b
+    content: "Step B"
+    depends_on: [step_a]

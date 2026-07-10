@@ -1,0 +1,10 @@
+version: "2"
+
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+
+prompts:
+  - id: test
+    content: "test step"

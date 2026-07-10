@@ -1,0 +1,10 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+
+prompts:
+  - id: from_file
+    content: ./prompt.txt

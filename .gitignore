@@ -1,0 +1,11 @@
+/workspace/
+/bin/
+*.exe
+*.test
+coverage.out
+.env
+.idea/
+.vscode/
+docs/
+examples/
+.cursor/
