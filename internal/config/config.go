@@ -2,15 +2,27 @@ package config
 
 // Config is the top-level airon runtime configuration.
 type Config struct {
-	Version    string           `yaml:"version"`
-	Provider   ProviderConfig   `yaml:"provider"`
-	Workspace  WorkspaceConfig  `yaml:"workspace"`
-	Runtime    RuntimeConfig    `yaml:"runtime"`
-	Log        LogConfig        `yaml:"log"`
-	Skills     []SkillConfig    `yaml:"skills"`
-	Agents     []AgentConfig    `yaml:"agents"`
+	Version    string            `yaml:"version"`
+	Provider   ProviderConfig    `yaml:"provider"`
+	Workspace  WorkspaceConfig   `yaml:"workspace"`
+	Runtime    RuntimeConfig     `yaml:"runtime"`
+	Log        LogConfig         `yaml:"log"`
+	Notify     NotifyConfig      `yaml:"notify"`
+	Skills     []SkillConfig     `yaml:"skills"`
+	Agents     []AgentConfig     `yaml:"agents"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
-	Prompts    []PromptConfig   `yaml:"prompts"`
+	Prompts    []PromptConfig    `yaml:"prompts"`
+}
+
+// NotifyConfig groups run-notification integrations.
+type NotifyConfig struct {
+	Healthchecks HealthchecksConfig `yaml:"healthchecks"`
+}
+
+// HealthchecksConfig configures a healthchecks.io compatible ping endpoint.
+// When URL is empty, the notifier becomes a no-op.
+type HealthchecksConfig struct {
+	URL string `yaml:"url"`
 }
 
 // ProviderConfig holds LLM provider settings.

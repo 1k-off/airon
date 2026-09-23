@@ -107,6 +107,77 @@ func TestEffectiveDefaults(t *testing.T) {
 	assert.Equal(t, 3, cfg.EffectiveMaxCallDepth())
 }
 
+func TestLoad_expandsNotifyHealthchecksURL(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+workspace:
+  path: ./workspace
+notify:
+  healthchecks:
+    url: https://hc-ping.com/${HC_UUID}
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+	t.Setenv("HC_UUID", "deadbeef-uuid")
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "https://hc-ping.com/deadbeef-uuid", loaded.Notify.Healthchecks.URL)
+}
+
+func TestLoad_missingNotifyURLEnvFails(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+workspace:
+  path: ./workspace
+notify:
+  healthchecks:
+    url: https://hc-ping.com/${MISSING_HC_UUID}
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+	os.Unsetenv("MISSING_HC_UUID")
+
+	_, err := Load(cfgPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing environment variable MISSING_HC_UUID")
+}
+
+func TestLoad_notifyOptional(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+workspace:
+  path: ./workspace
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "", loaded.Notify.Healthchecks.URL)
+}
+
 func TestLoad_expandsMCPServerHeadersAndURL(t *testing.T) {
 	root := t.TempDir()
 	cfgPath := filepath.Join(root, "mcp.yaml")

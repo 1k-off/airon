@@ -78,6 +78,18 @@ func TestRunCLI_usageErrorsReturnExitCode2(t *testing.T) {
 	}
 }
 
+func TestRunCLI_noHealthchecksFlagIsAccepted(t *testing.T) {
+	// --no-healthchecks by itself should be a recognized flag; the missing
+	// --config triggers the usage error, but the flag must have been parsed
+	// (i.e. no "flag provided but not defined" error on stderr).
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"run", "--no-healthchecks"})
+		assert.Equal(t, exitUsage, code)
+	})
+	assert.NotContains(t, stderr, "flag provided but not defined")
+	assert.Contains(t, stderr, "--config is required")
+}
+
 func TestVarFlags_SetAndString(t *testing.T) {
 	var flags varFlags
 	require.NoError(t, flags.Set("topic=testing"))

@@ -59,6 +59,7 @@ func runCLI(args []string) int {
 	configPath := runFlags.String("config", "", "Path to YAML config")
 	inputValue := runFlags.String("input", "", `Sets template variable "input"`)
 	stream := runFlags.Bool("stream", false, "Stream assistant text to stdout")
+	noHealthchecks := runFlags.Bool("no-healthchecks", false, "Disable healthchecks.io notifier for this run")
 	var vars varFlags
 	runFlags.Var(&vars, "var", "Additional template variable (key=value)")
 
@@ -83,7 +84,8 @@ func runCLI(args []string) int {
 	defer cancel()
 
 	app, err := bootstrap.NewAppWithOptions(ctx, *configPath, input, bootstrap.AppOptions{
-		Stream: *stream,
+		Stream:         *stream,
+		NoHealthchecks: *noHealthchecks,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "runtime error: %v\n", err)
@@ -107,5 +109,5 @@ func runCLI(args []string) int {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
-	fmt.Fprintln(os.Stderr, "  airon run --config ./airon.yaml [--input \"text\"] [--stream] [--var key=value]")
+	fmt.Fprintln(os.Stderr, "  airon run --config ./airon.yaml [--input \"text\"] [--stream] [--no-healthchecks] [--var key=value]")
 }

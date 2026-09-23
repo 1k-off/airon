@@ -61,6 +61,9 @@ func expandConfig(cfg *Config) error {
 	if err := expandLog(&cfg.Log); err != nil {
 		return err
 	}
+	if err := expandNotify(&cfg.Notify); err != nil {
+		return err
+	}
 
 	for i := range cfg.Skills {
 		cfg.Skills[i].Path, err = expandEnvString(cfg.Skills[i].Path)
@@ -122,6 +125,12 @@ func expandRuntime(r *RuntimeConfig) error {
 func expandLog(l *LogConfig) error {
 	var err error
 	l.Level, err = expandEnvString(l.Level)
+	return err
+}
+
+func expandNotify(n *NotifyConfig) error {
+	var err error
+	n.Healthchecks.URL, err = expandEnvString(n.Healthchecks.URL)
 	return err
 }
 

@@ -13,12 +13,18 @@ import (
 	"github.com/1node/airon/internal/config"
 	"github.com/1node/airon/internal/executor"
 	"github.com/1node/airon/internal/mcp"
+	"github.com/1node/airon/internal/notify"
 	"github.com/1node/airon/internal/provider"
 	"github.com/1node/airon/internal/runlog"
 	"github.com/1node/airon/internal/skill"
 	"github.com/1node/airon/internal/tool"
 	"github.com/1node/airon/internal/workspace"
 )
+
+// EnvHealthchecks is the name of the environment variable that can be set to
+// "0", "false", or "no" (case-insensitive) to disable the healthchecks
+// notifier for a run without changing the config or the CLI invocation.
+const EnvHealthchecks = "AIRON_HEALTHCHECKS"
 
 type App struct {
 	configPath string
@@ -29,6 +35,8 @@ type App struct {
 	registry   *tool.Registry
 	executor   *executor.Executor
 	logger     runlog.Logger
+	slog       *slog.Logger
+	notifier   *notify.Healthchecks
 	mcpClients []*mcp.Client
 }
 
@@ -45,6 +53,17 @@ func NewAppWithProvider(cfgPath string, input map[string]string, providerClient 
 		return nil, fmt.Errorf("provider is required")
 	}
 	return newApp(context.Background(), cfgPath, input, providerClient, AppOptions{})
+}
+
+// NewAppWithProviderAndOptions is like NewAppWithProvider but also accepts
+// AppOptions. Intended for callers (including tests) that need to inject a
+// provider while still exercising runtime option toggles such as
+// NoHealthchecks or Stream.
+func NewAppWithProviderAndOptions(ctx context.Context, cfgPath string, input map[string]string, providerClient provider.Provider, opts AppOptions) (*App, error) {
+	if providerClient == nil {
+		return nil, fmt.Errorf("provider is required")
+	}
+	return newApp(ctx, cfgPath, input, providerClient, opts)
 }
 
 func newApp(ctx context.Context, cfgPath string, input map[string]string, injectedProvider provider.Provider, opts AppOptions) (*App, error) {
@@ -156,7 +175,13 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		return string(data), nil
 	}
 
-	logger := runlog.NewLogger(ws, newHumanLogger(cfg.Log.Level))
+	humanLogger := newHumanLogger(cfg.Log.Level)
+	logger := runlog.NewLogger(ws, humanLogger)
+
+	notifier := notify.NewHealthchecks(
+		cfg.Notify.Healthchecks.URL,
+		healthchecksDisabled(opts.NoHealthchecks, os.Getenv(EnvHealthchecks)),
+	)
 
 	exec := executor.NewExecutor(executor.ExecutorConfig{
 		Provider:      providerClient,
@@ -184,15 +209,35 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		registry:   registry,
 		executor:   exec,
 		logger:     logger,
+		slog:       humanLogger,
+		notifier:   notifier,
 		mcpClients: mcpClients,
 	}
 	return app, nil
 }
 
 func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
+	if a.notifier != nil && a.notifier.Enabled() {
+		if err := a.notifier.Start(ctx); err != nil {
+			a.logNotifyError("start", err)
+		}
+	}
+
 	result, runErr := a.executor.Run(ctx, executor.RunInput{
 		Variables: cloneInput(a.input),
 	})
+
+	if a.notifier != nil && a.notifier.Enabled() {
+		if runErr != nil {
+			if err := a.notifier.Fail(ctx, runErr.Error()); err != nil {
+				a.logNotifyError("fail", err)
+			}
+		} else {
+			if err := a.notifier.Success(ctx); err != nil {
+				a.logNotifyError("success", err)
+			}
+		}
+	}
 
 	stepRecords := make([]runlog.StepRecord, 0, len(result.Steps))
 	for _, step := range result.Steps {
@@ -318,6 +363,28 @@ func parseLevel(level string) slog.Leveler {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// healthchecksDisabled reports whether the healthchecks notifier should be
+// disabled. It considers both the AppOptions.NoHealthchecks toggle and the
+// AIRON_HEALTHCHECKS environment variable, which disables the notifier when
+// set to "0", "false", or "no" (case-insensitive).
+func healthchecksDisabled(optDisabled bool, envValue string) bool {
+	if optDisabled {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(envValue)) {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
+}
+
+func (a *App) logNotifyError(phase string, err error) {
+	if a == nil || a.slog == nil || err == nil {
+		return
+	}
+	a.slog.Warn("healthchecks notify failed", "phase", phase, "error", err.Error())
 }
 
 func closeClients(clients []*mcp.Client) {
