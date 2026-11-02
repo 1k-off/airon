@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/1node/airon/internal/config"
-	"github.com/1node/airon/internal/depth"
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/skill"
-	"github.com/1node/airon/internal/tool"
-	"github.com/1node/airon/internal/workspace"
+	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/depth"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/skill"
+	"github.com/1k-off/airon/internal/tool"
+	"github.com/1k-off/airon/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

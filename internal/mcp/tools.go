@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

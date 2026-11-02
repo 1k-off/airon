@@ -70,7 +70,18 @@ Disable in three ways:
 - For jobs that run multiple times per day, use the same UUID — healthchecks tracks the schedule.
 - When you disable the notifier (e.g. during a maintenance window), remember to pause the check on the healthchecks side so the missing pings do not fire spurious alerts.
 
-## 5. Failure triage
+## 5. Pre-flight: `airon check`
+
+Before scheduling a new job (or after editing YAML), validate offline:
+
+```bash
+airon check --config /etc/airon/job.yaml          # warnings for unset ${ENV}
+airon check --config /etc/airon/job.yaml --strict # fail if any ${ENV} missing
+```
+
+`check` never dials LLM providers or MCP servers. Use it in deploy pipelines so a broken DAG or missing skill path never reaches cron.
+
+## 6. Failure triage
 
 When a run fails, follow this order:
 
@@ -100,13 +111,13 @@ When a run fails, follow this order:
 - Do **not** delete `workspace/logs/*.json` while triaging — you need them.
 - If the workspace itself is compromised (external tool wrote outside the sandbox), airon rejects the write; still, delete and recreate the workspace directory to be safe.
 
-## 6. Upgrading & rollbacks
+## 7. Upgrading & rollbacks
 
 - airon is a single Go binary. Ship it via your existing pipeline (`go build -o bin/airon ./cmd/airon/`) and swap the binary atomically.
 - Configs are backward compatible on the `version: "1"` schema; new fields default to safe values.
 - To roll back, restore the previous binary and (if needed) the previous config from your VCS.
 
-## 7. Cron embedding cheat sheet
+## 8. Cron embedding cheat sheet
 
 - **Shell + binary**: `airon run --config /etc/airon/job.yaml --no-healthchecks` when running from CI/manual, drop the flag in real cron so pings happen.
 - **Embedded Go wrapper**: prefer this in production. See "Embedding airon as a library" in the [README](../../README.md#embedding-airon-as-a-library-pkgairon). Advantages: keeps secrets in-process, lets you branch on `Result.Success` and `Result.Steps[*].Error`, avoids the fork/exec cost.

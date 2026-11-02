@@ -18,9 +18,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/1node/airon/internal/bootstrap"
-	"github.com/1node/airon/internal/executor"
-	"github.com/1node/airon/internal/provider"
+	"github.com/1k-off/airon/internal/bootstrap"
+	"github.com/1k-off/airon/internal/executor"
+	"github.com/1k-off/airon/internal/provider"
 )
 
 // Options configures a single embedded airon run.

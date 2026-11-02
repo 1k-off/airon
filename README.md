@@ -1,10 +1,23 @@
 # airon
 
+[![CI](https://github.com/1k-off/airon/actions/workflows/ci.yml/badge.svg)](https://github.com/1k-off/airon/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 `airon` is an **AI-powered cron** — a Go runtime for autonomously running AI jobs on a schedule or on demand.
 
 You give it a config: LLM **provider** and **model**, a pipeline of **prompts**, optional **skills** and **agents**, and **MCP servers** for external tools. It executes the pipeline, calls tools as needed, and returns the **result** (step outputs, workspace artifacts, and a JSON run log).
 
 Under the hood it is a lightweight orchestrator for prompt pipelines with tool calling, skill delegation, and MCP integration — designed to be wired into cron, CI, or any job runner that needs a deterministic `run` → `output` contract.
+
+Module: `github.com/1k-off/airon` · License: [MIT](./LICENSE)
+
+## Install
+
+```bash
+go install github.com/1k-off/airon/cmd/airon@latest
+# or from a clone:
+go build -o bin/airon ./cmd/airon/
+```
 
 ## Quick Start
 
@@ -91,8 +104,11 @@ mcp_servers:
 ## CLI
 
 ```bash
-airon run --config ./airon.yaml [--input "text"] [--stream] [--no-healthchecks] [--var key=value]
+airon run   --config ./airon.yaml [--input "text"] [--stream] [--no-healthchecks] [--var key=value]
+airon check --config ./airon.yaml [--strict]
 ```
+
+### `run`
 
 Flags:
 - `--config` — required. Path to the airon YAML config.
@@ -101,9 +117,13 @@ Flags:
 - `--stream` — stream assistant text to stdout even if the config disables streaming.
 - `--no-healthchecks` — disable the healthchecks.io notifier for this run. The environment variable `AIRON_HEALTHCHECKS` set to `0` / `false` / `no` / `off` has the same effect.
 
-Exit codes:
+### `check`
+
+Validates YAML structure, prompt DAG, skill paths, and MCP config **without** calling an LLM or connecting to MCP. Unset `${ENV}` references are reported as warnings; pass `--strict` to fail closed (useful in CI/deploy).
+
+Exit codes (both commands):
 - `0`: success
-- `1`: runtime error
+- `1`: runtime / check error
 - `2`: usage error
 
 ## Notifications
@@ -126,7 +146,7 @@ notify:
 Cron wrappers, other services, or tests can drive airon directly instead of shelling out to the CLI. The public surface is intentionally small:
 
 ```go
-import "github.com/1node/airon/pkg/airon"
+import "github.com/1k-off/airon/pkg/airon"
 
 res, err := airon.Run(ctx, airon.Options{
     ConfigPath:     "./airon.yaml",

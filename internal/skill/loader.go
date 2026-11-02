@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/tool"
 	"gopkg.in/yaml.v3"
 )
 

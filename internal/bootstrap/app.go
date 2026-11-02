@@ -8,17 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/1node/airon/internal/agent"
-	"github.com/1node/airon/internal/builtin"
-	"github.com/1node/airon/internal/config"
-	"github.com/1node/airon/internal/executor"
-	"github.com/1node/airon/internal/mcp"
-	"github.com/1node/airon/internal/notify"
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/runlog"
-	"github.com/1node/airon/internal/skill"
-	"github.com/1node/airon/internal/tool"
-	"github.com/1node/airon/internal/workspace"
+	"github.com/1k-off/airon/internal/agent"
+	"github.com/1k-off/airon/internal/builtin"
+	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/executor"
+	"github.com/1k-off/airon/internal/mcp"
+	"github.com/1k-off/airon/internal/notify"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/runlog"
+	"github.com/1k-off/airon/internal/skill"
+	"github.com/1k-off/airon/internal/tool"
+	"github.com/1k-off/airon/internal/workspace"
 )
 
 // EnvHealthchecks is the name of the environment variable that can be set to

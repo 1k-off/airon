@@ -3,7 +3,7 @@ package executor
 import (
 	"testing"
 
-	"github.com/1node/airon/internal/config"
+	"github.com/1k-off/airon/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

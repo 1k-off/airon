@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/1node/airon/internal/config"
-	"github.com/1node/airon/internal/depth"
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/template"
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/depth"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/template"
+	"github.com/1k-off/airon/internal/tool"
 )
 
 type RunInput struct {
