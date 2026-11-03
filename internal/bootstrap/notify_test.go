@@ -306,3 +306,25 @@ func TestLogNotifyError_safeOnNilReceiverOrNilError(t *testing.T) {
 	app = &App{}
 	app.logNotifyError("start", errors.New("boom")) // slog nil, must not panic
 }
+
+func TestApp_Run_failPingSurvivesCanceledContext(t *testing.T) {
+	handler := &recordingHandler{}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	cfgPath := writeNotifyConfig(t, server.URL)
+	mock := &mockProvider{err: errors.New("provider boom")}
+	app, err := NewAppWithProviderAndOptions(context.Background(), cfgPath, map[string]string{"input": "x"}, mock, AppOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, app.Close()) })
+	app.notifier.WithHTTPClient(server.Client())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, runErr := app.Run(ctx)
+	require.Error(t, runErr)
+
+	paths := handler.paths()
+	assert.Contains(t, paths, "/fail", "fail ping must use an uncanceled context")
+}

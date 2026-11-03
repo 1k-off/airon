@@ -16,9 +16,12 @@ package airon
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"time"
 
 	"github.com/1k-off/airon/internal/bootstrap"
+	"github.com/1k-off/airon/internal/config"
 	"github.com/1k-off/airon/internal/executor"
 	"github.com/1k-off/airon/internal/provider"
 )
@@ -32,7 +35,7 @@ type Options struct {
 	// prompt bodies at render time. May be nil.
 	Input map[string]string
 
-	// Stream, when true, streams assistant deltas to stdout even if the
+	// Stream, when true, streams assistant deltas to Stdout even if the
 	// config disables streaming.
 	Stream bool
 
@@ -41,33 +44,95 @@ type Options struct {
 	// The AIRON_HEALTHCHECKS environment variable (values "0", "false",
 	// "no", "off") also disables the notifier.
 	NoHealthchecks bool
+
+	// Stdout receives streamed assistant deltas. Nil defaults to os.Stdout.
+	Stdout io.Writer
+
+	// Stderr receives human log lines. Nil defaults to os.Stderr.
+	Stderr io.Writer
+
+	// Provider, when non-nil, replaces the config-derived LLM provider.
+	// Intended for tests and advanced embedding. The value must implement
+	// the same Complete contract as airon's internal providers; use
+	// NewStaticProvider in tests.
+	Provider Provider
 }
 
-// Result summarizes the outcome of a Run call. It intentionally exposes only
-// the fields most useful to embedding callers; consumers that need the full
-// executor state should call bootstrap.NewAppWithOptions directly.
+// Provider is the embeddable LLM completion interface.
+type Provider interface {
+	Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error)
+}
+
+// MessageRole identifies a chat message author.
+type MessageRole string
+
+const (
+	RoleSystem    MessageRole = "system"
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+	RoleTool      MessageRole = "tool"
+)
+
+// Message is a single chat turn for an injected Provider.
+type Message struct {
+	Role       MessageRole
+	Content    string
+	ToolCallID string
+	ToolCalls  []ToolCall
+}
+
+// ToolCall is a model-requested tool invocation.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
+}
+
+// ToolDefinition describes a tool the model may call.
+type ToolDefinition struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+// CompletionRequest is the input to Provider.Complete.
+type CompletionRequest struct {
+	Model       string
+	Messages    []Message
+	Tools       []ToolDefinition
+	Temperature *float64
+	MaxTokens   *int
+	OnDelta     func(string)
+}
+
+// CompletionResponse is the output from Provider.Complete.
+type CompletionResponse struct {
+	Content      string
+	ToolCalls    []ToolCall
+	FinishReason string
+	Usage        *TokenUsage
+}
+
+// TokenUsage reports provider token accounting for one completion.
+type TokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
+// Result summarizes the outcome of a Run call.
 type Result struct {
-	// RunID is the unique identifier assigned by the executor. Empty when
-	// bootstrap failed before the executor started.
-	RunID string
-
-	// Success is true when the executor finished all prompts without error.
-	Success bool
-
-	// Error is a copy of the primary run error message (if any). It is the
-	// same value returned as the second return of Run.
-	Error string
-
-	// StartedAt and FinishedAt bracket the executor invocation. Zero when
-	// the run did not reach the executor.
+	RunID      string
+	Success    bool
+	Error      string
 	StartedAt  time.Time
 	FinishedAt time.Time
-
-	// Steps summarizes each prompt step in execution order.
-	Steps []StepSummary
-
-	// Usage aggregates token accounting across the run.
-	Usage Usage
+	Steps      []StepSummary
+	Usage      Usage
+	// WorkspaceRoot is the absolute sandboxed workspace path.
+	WorkspaceRoot string
+	// LogPath is the workspace-relative JSON run log path (logs/<run_id>.json).
+	LogPath string
 }
 
 // StepSummary summarizes a single executed prompt step.
@@ -90,21 +155,22 @@ type Usage struct {
 	TotalTokens      int
 }
 
-// testProviderOverride, when non-nil, forces Run to use the given provider
-// instead of constructing one from the config. It is unexported so it cannot
-// be set from outside the package; internal tests set it via
-// setTestProvider in the same package. In production builds it is always nil.
+// CheckReport summarizes an offline config check.
+type CheckReport struct {
+	MissingEnv []string
+	Warnings   []string
+	Provider   string
+	Model      string
+	Prompts    int
+	Skills     int
+	MCPServers int
+}
+
+// testProviderOverride forces Run to use a given internal provider (tests only).
 var testProviderOverride provider.Provider
 
 // Run executes the configured airon job end-to-end and returns a summarized
-// Result. It wraps bootstrap.NewAppWithOptions + App.Run + App.Close so that
-// the CLI and library share the same runtime path.
-//
-// Run never calls os.Exit. If setup fails (bad config, MCP handshake, etc.)
-// Run returns a zero-valued Result and the underlying error. If the run
-// starts but a prompt fails, Run returns a Result with Success=false and the
-// error value. Healthchecks notifier failures never override the primary
-// run error — they are logged and swallowed at the bootstrap layer.
+// Result. It never calls os.Exit.
 func Run(ctx context.Context, opts Options) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -113,14 +179,22 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	appOpts := bootstrap.AppOptions{
 		Stream:         opts.Stream,
 		NoHealthchecks: opts.NoHealthchecks,
+		Stdout:         opts.Stdout,
+		Stderr:         opts.Stderr,
 	}
 
 	var (
 		app *bootstrap.App
 		err error
 	)
-	if testProviderOverride != nil {
-		app, err = bootstrap.NewAppWithProviderAndOptions(ctx, opts.ConfigPath, opts.Input, testProviderOverride, appOpts)
+
+	injected := testProviderOverride
+	if opts.Provider != nil {
+		injected = adaptProvider(opts.Provider)
+	}
+
+	if injected != nil {
+		app, err = bootstrap.NewAppWithProviderAndOptions(ctx, opts.ConfigPath, opts.Input, injected, appOpts)
 	} else {
 		app, err = bootstrap.NewAppWithOptions(ctx, opts.ConfigPath, opts.Input, appOpts)
 	}
@@ -131,7 +205,92 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 
 	runResult, runErr := app.Run(ctx)
 	res := toResult(runResult, runErr)
+	res.WorkspaceRoot = app.WorkspaceRoot()
+	res.LogPath = app.LogPath(res.RunID)
 	return res, runErr
+}
+
+// Check validates a config file offline (no LLM, no MCP dial).
+func Check(path string) (CheckReport, error) {
+	report, err := config.Check(path)
+	out := CheckReport{MissingEnv: report.MissingEnv, Warnings: report.Warnings}
+	if report.Config != nil {
+		out.Provider = report.Config.Provider.Type
+		out.Model = report.Config.Provider.Model
+		out.Prompts = len(report.Config.Prompts)
+		out.Skills = len(report.Config.Skills)
+		out.MCPServers = len(report.Config.MCPServers)
+	}
+	return out, err
+}
+
+// NewStaticProvider returns a Provider that serves canned responses in order.
+// Useful for embedding tests without a live LLM.
+func NewStaticProvider(responses ...CompletionResponse) Provider {
+	return &staticProvider{responses: responses}
+}
+
+type staticProvider struct {
+	responses []CompletionResponse
+	idx       int
+}
+
+func (p *staticProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return CompletionResponse{}, err
+	}
+	if p.idx >= len(p.responses) {
+		return CompletionResponse{}, fmt.Errorf("static provider: no more canned responses")
+	}
+	if req.OnDelta != nil && p.responses[p.idx].Content != "" {
+		req.OnDelta(p.responses[p.idx].Content)
+	}
+	resp := p.responses[p.idx]
+	p.idx++
+	return resp, nil
+}
+
+func adaptProvider(p Provider) provider.Provider {
+	return &providerAdapter{inner: p}
+}
+
+type providerAdapter struct {
+	inner Provider
+}
+
+func (a *providerAdapter) Complete(ctx context.Context, req provider.CompletionRequest) (provider.CompletionResponse, error) {
+	pubReq := CompletionRequest{
+		Model:       req.Model,
+		Temperature: req.Temperature,
+		MaxTokens:   req.MaxTokens,
+		OnDelta:     req.OnDelta,
+	}
+	for _, m := range req.Messages {
+		pm := Message{Role: MessageRole(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
+		for _, tc := range m.ToolCalls {
+			pm.ToolCalls = append(pm.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+		}
+		pubReq.Messages = append(pubReq.Messages, pm)
+	}
+	for _, t := range req.Tools {
+		pubReq.Tools = append(pubReq.Tools, ToolDefinition{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
+	}
+	resp, err := a.inner.Complete(ctx, pubReq)
+	if err != nil {
+		return provider.CompletionResponse{}, err
+	}
+	out := provider.CompletionResponse{Content: resp.Content, FinishReason: resp.FinishReason}
+	for _, tc := range resp.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, provider.ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments})
+	}
+	if resp.Usage != nil {
+		out.Usage = &provider.TokenUsage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		}
+	}
+	return out, nil
 }
 
 func toResult(r executor.RunResult, runErr error) Result {

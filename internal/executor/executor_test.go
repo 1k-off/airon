@@ -316,7 +316,7 @@ func TestExecutor_Run_recordsToolCallDepthFromContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Steps, 1)
 	require.Len(t, result.Steps[0].ToolCalls, 1)
-	assert.Equal(t, 1, result.Steps[0].ToolCalls[0].Depth)
+	assert.Equal(t, 2, result.Steps[0].ToolCalls[0].Depth) // depth at tool Execute
 	assert.Equal(t, 2, probe.executeDepth)
 }
 

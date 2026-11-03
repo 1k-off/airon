@@ -19,36 +19,14 @@ type frontmatter struct {
 	Description string `yaml:"description"`
 }
 
+// Load loads skill metadata with a nil provider. The returned tool cannot
+// Execute successfully — prefer LoadConfigured for runnable skills. Kept for
+// callers that only need Name/Description/Parameters introspection.
 func Load(path string) (tool.Tool, error) {
-	targetPath, baseName, err := resolveSkillPath(path)
-	if err != nil {
-		return nil, err
-	}
-
-	content, err := os.ReadFile(targetPath)
-	if err != nil {
-		return nil, fmt.Errorf("read skill file: %w", err)
-	}
-
-	meta, body, err := parseFrontmatterAndBody(string(content))
-	if err != nil {
-		return nil, err
-	}
-
-	name, err := resolveSkillName(meta, baseName)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewSkillTool(
-		name,
-		strings.TrimSpace(meta.Description),
-		strings.TrimSpace(body),
-		nil,
-		0,
-	), nil
+	return LoadConfigured(path, nil, 0)
 }
 
+// LoadAll loads skill metadata for each path. See Load.
 func LoadAll(paths []string) ([]tool.Tool, error) {
 	tools := make([]tool.Tool, 0, len(paths))
 	for _, path := range paths {

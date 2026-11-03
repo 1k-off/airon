@@ -119,7 +119,9 @@ func expandWorkspace(w *WorkspaceConfig) error {
 }
 
 func expandRuntime(r *RuntimeConfig) error {
-	return nil
+	var err error
+	r.Timeout, err = expandEnvString(r.Timeout)
+	return err
 }
 
 func expandLog(l *LogConfig) error {
@@ -204,6 +206,10 @@ func expandMCPServer(s *MCPServerConfig) error {
 	}
 
 	s.URL, err = expandEnvString(s.URL)
+	if err != nil {
+		return err
+	}
+	s.Timeout, err = expandEnvString(s.Timeout)
 	if err != nil {
 		return err
 	}
@@ -344,13 +350,23 @@ func resolveOptionalPath(baseDir, value string) string {
 		return value
 	}
 
-	if pathExists(value) {
-		return cleanAbsPath(value)
+	// Prefer paths relative to the config directory so jobs are portable
+	// regardless of the process CWD. Absolute paths still win as-is.
+	if filepath.IsAbs(value) {
+		if pathExists(value) {
+			return cleanAbsPath(value)
+		}
+		return value
 	}
 
 	candidate := filepath.Join(baseDir, value)
 	if pathExists(candidate) {
 		return cleanAbsPath(candidate)
+	}
+
+	// Fall back to CWD-relative for backwards compatibility.
+	if pathExists(value) {
+		return cleanAbsPath(value)
 	}
 
 	return value

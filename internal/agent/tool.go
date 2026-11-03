@@ -41,7 +41,7 @@ func (a *agentTool) Parameters() map[string]any {
 				"description": "Message to send to the agent",
 			},
 		},
-		"required": []any{"message"},
+		"required": []string{"message"},
 	}
 }
 
@@ -60,8 +60,10 @@ func (a *agentTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 		return "", fmt.Errorf("message is required")
 	}
 
-	subCtx := depth.WithIncrement(ctx)
-
+	// Depth increments once per nested tool Execute (done by the caller / when
+	// we invoke child tools below). Do not bump again for the agent's own
+	// Complete calls — otherwise step→agent→skill exhausts the default
+	// max_call_depth of 3.
 	messages := make([]provider.Message, 0, 2)
 	if a.systemPrompt != "" {
 		messages = append(messages, provider.Message{
@@ -75,7 +77,7 @@ func (a *agentTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 	})
 
 	for round := 1; round <= a.maxToolRounds; round++ {
-		resp, err := a.provider.Complete(subCtx, provider.CompletionRequest{
+		resp, err := a.provider.Complete(ctx, provider.CompletionRequest{
 			Model:    a.model,
 			Messages: messages,
 			Tools:    a.toolDefs,
@@ -101,7 +103,7 @@ func (a *agentTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 				result = fmt.Sprintf("error: agent tool %q is not allowed", call.Name)
 			} else {
 				var execErr error
-				result, execErr = target.Execute(depth.WithIncrement(subCtx), json.RawMessage(call.Arguments))
+				result, execErr = target.Execute(depth.WithIncrement(ctx), json.RawMessage(call.Arguments))
 				if execErr != nil {
 					result = fmt.Sprintf("error: %v", execErr)
 				}

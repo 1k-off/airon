@@ -32,6 +32,9 @@ type ProviderConfig struct {
 	APIKey      string   `yaml:"api_key"`
 	BaseURL     string   `yaml:"base_url"`
 	Temperature *float64 `yaml:"temperature"`
+	// MaxTokens caps completion length. When unset, Anthropic defaults to 4096;
+	// OpenAI uses the provider default.
+	MaxTokens *int `yaml:"max_tokens"`
 }
 
 // WorkspaceConfig holds sandbox workspace settings.
@@ -45,6 +48,11 @@ type RuntimeConfig struct {
 	MaxCallDepth  int  `yaml:"max_call_depth"`
 	Stream        bool `yaml:"stream"`
 	SaveOutputs   bool `yaml:"save_outputs"`
+	// Timeout bounds the entire run (Go duration, e.g. "30m", "1h"). Empty = no bound.
+	Timeout string `yaml:"timeout"`
+	// LogInputs controls whether template input vars are persisted to the run
+	// JSON. Sensitive-looking keys are always redacted when logging.
+	LogInputs *bool `yaml:"log_inputs"`
 }
 
 // LogConfig holds logging settings.
@@ -76,6 +84,12 @@ type MCPServerConfig struct {
 	Env       map[string]string `yaml:"env"`
 	URL       string            `yaml:"url"`
 	Headers   map[string]string `yaml:"headers"`
+	// Timeout for HTTP MCP transports (Go duration). Empty defaults to 60s.
+	Timeout string `yaml:"timeout"`
+	// EnvPassthrough controls whether stdio children inherit the host
+	// environment. Nil/true = inherit (plus Env overlays). False = only Env
+	// (and PATH/SystemRoot so binaries still resolve).
+	EnvPassthrough *bool `yaml:"env_passthrough"`
 }
 
 // PromptConfig defines a sequential execution step.
@@ -96,7 +110,17 @@ type Agent = AgentConfig
 const (
 	defaultMaxToolRounds = 10
 	defaultMaxCallDepth  = 3
+	defaultMCPHTTPTimeout = "60s"
 )
+
+// EffectiveLogInputs reports whether run logs should include the input map.
+// Defaults to true; sensitive keys are still redacted by the runlog layer.
+func (c *Config) EffectiveLogInputs() bool {
+	if c.Runtime.LogInputs == nil {
+		return true
+	}
+	return *c.Runtime.LogInputs
+}
 
 // EffectiveMaxToolRounds returns the configured limit or the default.
 func (c *Config) EffectiveMaxToolRounds() int {

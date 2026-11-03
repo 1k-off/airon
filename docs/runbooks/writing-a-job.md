@@ -19,9 +19,11 @@ workspace:
 
 runtime:
   max_tool_rounds: 20       # per prompt step
-  max_call_depth: 3         # skill/agent nesting depth
+  max_call_depth: 3         # nesting: step→agent→skill fits in 3 after depth fix
+  timeout: 45m              # optional whole-run deadline (Go duration)
   stream: false
   save_outputs: true        # persist each step output to workspace/outputs/<step_id>.md
+  log_inputs: true          # set false to omit input map from run JSON (secrets still redacted)
 
 log:
   level: info
@@ -44,6 +46,8 @@ mcp_servers:
   - name: backup
     transport: streamable_http
     url: ${BACKUP_CHECK_MCP_URL}
+    timeout: 60s                # HTTP client timeout (default 60s)
+    # env_passthrough: false    # for stdio: do not inherit host env (API keys)
     headers:
       Authorization: Bearer ${MCP_TOKEN}
 

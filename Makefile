@@ -1,5 +1,10 @@
 .PHONY: test test-race test-cover test-integration build ci
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X github.com/1k-off/airon/internal/mcp.ClientVersion=$(VERSION)
+
 test:
 	go test ./... -count=1
 
@@ -18,7 +23,7 @@ test-integration:
 	go test -tags=integration ./internal/e2e/... -count=1 -v
 
 build:
-	go build -o bin/airon ./cmd/airon/
+	go build -ldflags "$(LDFLAGS)" -o bin/airon ./cmd/airon/
 
 ifeq ($(OS),Windows_NT)
 ci:

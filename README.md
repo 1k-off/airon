@@ -14,9 +14,9 @@ Module: `github.com/1k-off/airon` · License: [MIT](./LICENSE)
 ## Install
 
 ```bash
-go install github.com/1k-off/airon/cmd/airon@latest
-# or from a clone:
-go build -o bin/airon ./cmd/airon/
+go install github.com/1k-off/airon/cmd/airon@latest   # or @v0.x.y once tagged
+# or from a clone (stamps version via git describe):
+make build
 ```
 
 ## Quick Start
@@ -99,14 +99,16 @@ mcp_servers:
 - `{{input}}` — set via CLI `--input`
 - `{{step_id}}` — output from a prior prompt step
 - `{{var}}` — additional vars via `--var key=value`
-- `{{file:relative/path}}` — inline file contents from workspace (resolved relative to config directory)
+- `{{file:relative/path}}` — inline file contents from the sandboxed `workspace.path`
 
 ## CLI
 
 ```bash
-airon run   --config ./airon.yaml [--input "text"] [--stream] [--no-healthchecks] [--var key=value]
-airon check --config ./airon.yaml [--strict]
+airon run     --config ./airon.yaml [--input "text"] [--stream] [--no-healthchecks] [--var key=value]
+airon check   --config ./airon.yaml [--strict]
+airon version
 ```
+
 
 ### `run`
 

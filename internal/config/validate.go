@@ -12,11 +12,11 @@ const supportedVersion = "1"
 // validate checks configuration constraints defined in the spec.
 func validate(cfg *Config) error {
 	if cfg.Version != supportedVersion {
-		return fmt.Errorf("config: unsupported version")
+		return fmt.Errorf("config: unsupported version %q (supported: %q)", cfg.Version, supportedVersion)
 	}
 
 	if cfg.Provider.Type != "openai" && cfg.Provider.Type != "anthropic" {
-		return fmt.Errorf("config: unsupported provider")
+		return fmt.Errorf("config: unsupported provider %q (supported: openai, anthropic)", cfg.Provider.Type)
 	}
 
 	if cfg.Provider.APIKey == "" {
@@ -138,7 +138,7 @@ func validatePrompts(prompts []PromptConfig) error {
 
 	for _, prompt := range prompts {
 		if _, exists := ids[prompt.ID]; exists {
-			return fmt.Errorf("config: duplicate prompt id")
+			return fmt.Errorf("config: duplicate prompt id %q", prompt.ID)
 		}
 		ids[prompt.ID] = struct{}{}
 	}
@@ -146,7 +146,7 @@ func validatePrompts(prompts []PromptConfig) error {
 	for _, prompt := range prompts {
 		for _, dep := range prompt.DependsOn {
 			if _, ok := ids[dep]; !ok {
-				return fmt.Errorf("config: unknown dependency")
+				return fmt.Errorf("config: prompt %q has unknown dependency %q", prompt.ID, dep)
 			}
 		}
 	}
@@ -201,7 +201,7 @@ func detectCycles(prompts []PromptConfig) error {
 	}
 
 	if visited != n {
-		return fmt.Errorf("config: cyclic dependency")
+		return fmt.Errorf("config: cyclic dependency among prompts")
 	}
 
 	return nil

@@ -169,3 +169,42 @@ func TestLoadAgents_buildsToolsAndDefaultsModel(t *testing.T) {
 	require.Len(t, mockProvider.requests, 1)
 	assert.Equal(t, "gpt-default", mockProvider.requests[0].Model)
 }
+
+func TestAgentTool_Execute_stepAgentSkillFitsDefaultDepth(t *testing.T) {
+	// Simulates executor calling agent at depth=1 (one WithIncrement), then agent
+	// calling a nested skill/tool - must succeed with maxDepth=3 (the default).
+	nested := &stubTool{
+		name: "writer",
+		execute: func(ctx context.Context, _ json.RawMessage) (string, error) {
+			assert.Equal(t, 2, depth.FromContext(ctx))
+			return "skill-ok", nil
+		},
+	}
+	registry, err := tool.NewRegistry(nested)
+	require.NoError(t, err)
+
+	mockProvider := &queueProvider{
+		responses: []provider.CompletionResponse{
+			{
+				ToolCalls: []provider.ToolCall{
+					{ID: "c1", Name: "writer", Arguments: `{"task":"x"}`},
+				},
+			},
+			{Content: "agent-done"},
+		},
+	}
+
+	agentTool, err := NewAgentTool(config.Agent{
+		ID:            "researcher",
+		SystemPrompt:  "sys",
+		Tools:         []string{"writer"},
+		MaxToolRounds: 3,
+	}, registry, mockProvider, "gpt", 3, 5)
+	require.NoError(t, err)
+
+	// executor depth.WithIncrement > depth 1 when agent starts
+	ctx := depth.WithIncrement(context.Background())
+	out, err := agentTool.Execute(ctx, json.RawMessage(`{"message":"go"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "agent-done", out)
+}

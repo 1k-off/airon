@@ -90,6 +90,27 @@ func TestRunCLI_noHealthchecksFlagIsAccepted(t *testing.T) {
 	assert.Contains(t, stderr, "--config is required")
 }
 
+func TestRunCLI_version(t *testing.T) {
+	var stdoutBuf bytes.Buffer
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdoutBuf, r)
+		close(done)
+	}()
+
+	code := runCLI([]string{"version"})
+	require.NoError(t, w.Close())
+	os.Stdout = origOut
+	<-done
+
+	assert.Equal(t, exitSuccess, code)
+	assert.Contains(t, stdoutBuf.String(), "airon")
+}
+
 func TestRunCLI_checkRequiresConfig(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		code := runCLI([]string{"check"})

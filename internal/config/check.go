@@ -85,6 +85,10 @@ func expandConfigAllowMissing(cfg *Config, missing map[string]struct{}) error {
 	if err != nil {
 		return err
 	}
+	cfg.Runtime.Timeout, err = expand(cfg.Runtime.Timeout)
+	if err != nil {
+		return err
+	}
 	cfg.Log.Level, err = expand(cfg.Log.Level)
 	if err != nil {
 		return err
@@ -201,6 +205,10 @@ func expandMCPServerAllowMissing(s *MCPServerConfig, expand expandFn) error {
 		s.Env = expanded
 	}
 	s.URL, err = expand(s.URL)
+	if err != nil {
+		return err
+	}
+	s.Timeout, err = expand(s.Timeout)
 	if err != nil {
 		return err
 	}

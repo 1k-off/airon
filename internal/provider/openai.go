@@ -108,6 +108,9 @@ func toChatCompletionParams(req CompletionRequest, defaultModel string) (openai.
 	if req.Temperature != nil {
 		params.Temperature = openai.Float(*req.Temperature)
 	}
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		params.MaxCompletionTokens = openai.Int(int64(*req.MaxTokens))
+	}
 
 	return params, nil
 }

@@ -3,10 +3,12 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/1k-off/airon/internal/agent"
 	"github.com/1k-off/airon/internal/builtin"
@@ -106,13 +108,15 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 	mcpClients := make([]*mcp.Client, 0, len(cfg.MCPServers))
 	for _, server := range cfg.MCPServers {
 		client, connectErr := mcp.Connect(ctx, mcp.ServerConfig{
-			Name:      server.Name,
-			Transport: server.Transport,
-			Command:   server.Command,
-			Args:      server.Args,
-			Env:       server.Env,
-			URL:       server.URL,
-			Headers:   server.Headers,
+			Name:           server.Name,
+			Transport:      server.Transport,
+			Command:        server.Command,
+			Args:           server.Args,
+			Env:            server.Env,
+			URL:            server.URL,
+			Headers:        server.Headers,
+			Timeout:        server.Timeout,
+			EnvPassthrough: server.EnvPassthrough,
 		})
 		if connectErr != nil {
 			closeClients(mcpClients)
@@ -160,10 +164,19 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		return nil, err
 	}
 
+	stdout := opts.Stdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
 	var onDelta func(string)
 	if cfg.Runtime.Stream || opts.Stream {
 		onDelta = func(chunk string) {
-			_, _ = os.Stdout.WriteString(chunk)
+			_, _ = io.WriteString(stdout, chunk)
 		}
 	}
 
@@ -175,7 +188,7 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		return string(data), nil
 	}
 
-	humanLogger := newHumanLogger(cfg.Log.Level)
+	humanLogger := newHumanLogger(cfg.Log.Level, stderr)
 	logger := runlog.NewLogger(ws, humanLogger)
 
 	notifier := notify.NewHealthchecks(
@@ -189,6 +202,7 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 		Prompts:       cfg.Prompts,
 		Model:         cfg.Provider.Model,
 		Temperature:   cfg.Provider.Temperature,
+		MaxTokens:     cfg.Provider.MaxTokens,
 		MaxToolRounds: cfg.EffectiveMaxToolRounds(),
 		OnDelta:       onDelta,
 		OnStepComplete: func(step executor.StepResult) {
@@ -217,23 +231,41 @@ func newApp(ctx context.Context, cfgPath string, input map[string]string, inject
 }
 
 func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	runCtx := ctx
+	cancel := func() {}
+	if timeout := strings.TrimSpace(a.cfg.Runtime.Timeout); timeout != "" {
+		if d, err := time.ParseDuration(timeout); err == nil && d > 0 {
+			runCtx, cancel = context.WithTimeout(ctx, d)
+		}
+	}
+	defer cancel()
+
 	if a.notifier != nil && a.notifier.Enabled() {
-		if err := a.notifier.Start(ctx); err != nil {
+		if err := a.notifier.Start(runCtx); err != nil {
 			a.logNotifyError("start", err)
 		}
 	}
 
-	result, runErr := a.executor.Run(ctx, executor.RunInput{
+	result, runErr := a.executor.Run(runCtx, executor.RunInput{
 		Variables: cloneInput(a.input),
 	})
 
+	// Post-run pings must survive cancellation of the run context (SIGINT,
+	// runtime.timeout, caller deadline) — that is exactly when operators need
+	// the /fail notification.
+	notifyCtx, notifyCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer notifyCancel()
 	if a.notifier != nil && a.notifier.Enabled() {
 		if runErr != nil {
-			if err := a.notifier.Fail(ctx, runErr.Error()); err != nil {
+			if err := a.notifier.Fail(notifyCtx, runErr.Error()); err != nil {
 				a.logNotifyError("fail", err)
 			}
 		} else {
-			if err := a.notifier.Success(ctx); err != nil {
+			if err := a.notifier.Success(notifyCtx); err != nil {
 				a.logNotifyError("success", err)
 			}
 		}
@@ -244,10 +276,18 @@ func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
 		stepRecords = append(stepRecords, toStepRecord(step))
 	}
 
+	inputForLog := map[string]string(nil)
+	if a.cfg.EffectiveLogInputs() {
+		inputForLog = runlog.RedactInput(cloneInput(a.input))
+	}
+	for i := range stepRecords {
+		stepRecords[i].RenderedPrompt = runlog.RedactString(stepRecords[i].RenderedPrompt, a.input)
+	}
+
 	runRecord := runlog.RunRecord{
 		RunID:      result.RunID,
 		ConfigPath: a.configPath,
-		Input:      cloneInput(a.input),
+		Input:      inputForLog,
 		Steps:      stepRecords,
 		Usage:      toUsageRecord(result.Usage),
 		StartedAt:  result.StartedAt,
@@ -268,6 +308,22 @@ func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
 		return result, runErr
 	}
 	return result, nil
+}
+
+// WorkspaceRoot returns the sandboxed workspace absolute path.
+func (a *App) WorkspaceRoot() string {
+	if a == nil || a.workspace == nil {
+		return ""
+	}
+	return a.workspace.Root
+}
+
+// LogPath returns the workspace-relative run log path for a run ID.
+func (a *App) LogPath(runID string) string {
+	if runID == "" {
+		return ""
+	}
+	return fmt.Sprintf("logs/%s.json", runID)
 }
 
 func (a *App) Close() error {
@@ -347,9 +403,12 @@ func cloneInput(input map[string]string) map[string]string {
 	return cloned
 }
 
-func newHumanLogger(level string) *slog.Logger {
+func newHumanLogger(level string, stderr io.Writer) *slog.Logger {
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	options := &slog.HandlerOptions{Level: parseLevel(level)}
-	return slog.New(slog.NewTextHandler(os.Stderr, options))
+	return slog.New(slog.NewTextHandler(stderr, options))
 }
 
 func parseLevel(level string) slog.Leveler {

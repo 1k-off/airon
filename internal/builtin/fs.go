@@ -32,7 +32,7 @@ func (t *fsReadTool) Parameters() map[string]any {
 				"description": "Path to file relative to workspace root.",
 			},
 		},
-		"required": []any{"path"},
+		"required": []string{"path"},
 	}
 }
 
@@ -73,7 +73,7 @@ func (t *fsWriteTool) Parameters() map[string]any {
 				"description": "File contents to write.",
 			},
 		},
-		"required": []any{"path", "content"},
+		"required": []string{"path", "content"},
 	}
 }
 

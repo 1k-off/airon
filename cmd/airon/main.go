@@ -11,6 +11,7 @@ import (
 
 	"github.com/1k-off/airon/internal/bootstrap"
 	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/mcp"
 )
 
 const (
@@ -18,6 +19,13 @@ const (
 	exitRuntime = 1
 	exitUsage   = 2
 )
+
+func init() {
+	// Keep MCP client version in sync with the binary version string.
+	if version != "" && version != "dev" {
+		mcp.ClientVersion = version
+	}
+}
 
 type varFlags map[string]string
 
@@ -59,6 +67,9 @@ func runCLI(args []string) int {
 		return runRun(args[1:])
 	case "check":
 		return runCheck(args[1:])
+	case "version", "--version", "-version":
+		fmt.Fprintf(os.Stdout, "airon %s (commit=%s date=%s)\n", version, commit, date)
+		return exitSuccess
 	default:
 		printUsage()
 		return exitUsage
@@ -163,8 +174,9 @@ func runCheck(args []string) int {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
-	fmt.Fprintln(os.Stderr, "  airon run   --config ./airon.yaml [--input \"text\"] [--stream] [--no-healthchecks] [--var key=value]")
-	fmt.Fprintln(os.Stderr, "  airon check --config ./airon.yaml [--strict]")
+	fmt.Fprintln(os.Stderr, "  airon run     --config ./airon.yaml [--input \"text\"] [--stream] [--no-healthchecks] [--var key=value]")
+	fmt.Fprintln(os.Stderr, "  airon check   --config ./airon.yaml [--strict]")
+	fmt.Fprintln(os.Stderr, "  airon version")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "check validates YAML structure and paths without calling LLM or MCP.")
 	fmt.Fprintln(os.Stderr, "Missing ${ENV} refs are reported as warnings unless --strict is set.")

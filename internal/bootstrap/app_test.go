@@ -18,10 +18,14 @@ import (
 type mockProvider struct {
 	requests  []provider.CompletionRequest
 	responses []provider.CompletionResponse
+	err       error
 }
 
 func (m *mockProvider) Complete(ctx context.Context, req provider.CompletionRequest) (provider.CompletionResponse, error) {
 	m.requests = append(m.requests, req)
+	if m.err != nil {
+		return provider.CompletionResponse{}, m.err
+	}
 	if len(m.responses) == 0 {
 		return provider.CompletionResponse{}, nil
 	}
