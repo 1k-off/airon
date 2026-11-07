@@ -43,7 +43,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Step "Build"
 New-Item -ItemType Directory -Force -Path "$repoRoot\bin" | Out-Null
-go build -o "$repoRoot\bin\airon.exe" ./cmd/airon/
+$version = "dev"
+$commit = "none"
+$date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+try { $version = (git describe --tags --always --dirty 2>$null); if (-not $version) { $version = "dev" } } catch {}
+try { $commit = (git rev-parse --short HEAD 2>$null); if (-not $commit) { $commit = "none" } } catch {}
+$ldflags = "-X main.version=$version -X main.commit=$commit -X main.date=$date -X github.com/1k-off/airon/internal/mcp.ClientVersion=$version"
+go build "-ldflags=$ldflags" -o "$repoRoot\bin\airon.exe" ./cmd/airon/
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""

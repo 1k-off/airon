@@ -35,6 +35,7 @@ type CompletionRequest struct {
 	Messages    []Message
 	Tools       []ToolDefinition
 	Temperature *float64
+	MaxTokens   *int
 	OnDelta     func(string) // optional streaming callback for assistant text
 }
 

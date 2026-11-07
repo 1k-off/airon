@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -51,6 +51,11 @@ func (t *wrappedTool) Execute(ctx context.Context, args json.RawMessage) (string
 	}
 
 	if result != nil && result.IsError {
+		if output != "" {
+			// Include MCP error body: callers (executor) often replace the
+			// tool result with err.Error() only.
+			return output, fmt.Errorf("mcp tool %q returned an error result: %s", t.name, output)
+		}
 		return output, fmt.Errorf("mcp tool %q returned an error result", t.name)
 	}
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/1node/airon/internal/bootstrap"
+	"github.com/1k-off/airon/internal/bootstrap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

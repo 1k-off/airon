@@ -19,6 +19,18 @@ func TestRender_missingVariable(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing")
 }
 
+func TestRender_optionalVariableMissingIsEmpty(t *testing.T) {
+	out, err := Render("Hello {{name?}}!", map[string]string{})
+	require.NoError(t, err)
+	assert.Equal(t, "Hello !", out)
+}
+
+func TestRender_optionalVariablePresent(t *testing.T) {
+	out, err := Render("{{input?}}", map[string]string{"input": "override"})
+	require.NoError(t, err)
+	assert.Equal(t, "override", out)
+}
+
 func TestRender_multipleVariables(t *testing.T) {
 	out, err := Render("{{greeting}} {{name}}!", map[string]string{
 		"greeting": "Hello",

@@ -78,6 +78,95 @@ func TestRunCLI_usageErrorsReturnExitCode2(t *testing.T) {
 	}
 }
 
+func TestRunCLI_noHealthchecksFlagIsAccepted(t *testing.T) {
+	// --no-healthchecks by itself should be a recognized flag; the missing
+	// --config triggers the usage error, but the flag must have been parsed
+	// (i.e. no "flag provided but not defined" error on stderr).
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"run", "--no-healthchecks"})
+		assert.Equal(t, exitUsage, code)
+	})
+	assert.NotContains(t, stderr, "flag provided but not defined")
+	assert.Contains(t, stderr, "--config is required")
+}
+
+func TestRunCLI_version(t *testing.T) {
+	var stdoutBuf bytes.Buffer
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdoutBuf, r)
+		close(done)
+	}()
+
+	code := runCLI([]string{"version"})
+	require.NoError(t, w.Close())
+	os.Stdout = origOut
+	<-done
+
+	assert.Equal(t, exitSuccess, code)
+	assert.Contains(t, stdoutBuf.String(), "airon")
+}
+
+func TestRunCLI_checkRequiresConfig(t *testing.T) {
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"check"})
+		assert.Equal(t, exitUsage, code)
+	})
+	assert.Contains(t, stderr, "--config is required")
+}
+
+func TestRunCLI_checkValidConfigOffline(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := root + string(os.PathSeparator) + "airon.yaml"
+	content := "version: \"1\"\n" +
+		"provider:\n  type: openai\n  model: gpt-4o\n  api_key: ${OPENAI_API_KEY}\n" +
+		"prompts:\n  - id: a\n    content: \"go\"\n"
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
+	os.Unsetenv("OPENAI_API_KEY")
+
+	var stdoutBuf bytes.Buffer
+	origOut := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdoutBuf, r)
+		close(done)
+	}()
+
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"check", "--config", cfgPath})
+		assert.Equal(t, exitSuccess, code)
+	})
+
+	require.NoError(t, w.Close())
+	os.Stdout = origOut
+	<-done
+
+	assert.Contains(t, stdoutBuf.String(), "ok: config valid")
+	assert.Contains(t, stderr, "OPENAI_API_KEY")
+}
+
+func TestRunCLI_checkStrictFailsOnMissingEnv(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := root + string(os.PathSeparator) + "airon.yaml"
+	content := "version: \"1\"\n" +
+		"provider:\n  type: openai\n  model: gpt-4o\n  api_key: ${OPENAI_API_KEY}\n" +
+		"prompts:\n  - id: a\n    content: \"go\"\n"
+	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0o644))
+	os.Unsetenv("OPENAI_API_KEY")
+
+	_ = captureStderr(t, func() {
+		code := runCLI([]string{"check", "--config", cfgPath, "--strict"})
+		assert.Equal(t, exitRuntime, code)
+	})
+}
+
 func TestVarFlags_SetAndString(t *testing.T) {
 	var flags varFlags
 	require.NoError(t, flags.Set("topic=testing"))

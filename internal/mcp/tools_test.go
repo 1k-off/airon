@@ -61,9 +61,11 @@ func TestWrappedTool_Execute_returnsErrorForMCPToolErrorResult(t *testing.T) {
 		},
 	}
 
-	_, err := toolInstance.Execute(context.Background(), json.RawMessage(`{}`))
+	out, err := toolInstance.Execute(context.Background(), json.RawMessage(`{}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error result")
+	assert.Contains(t, err.Error(), "tool failed")
+	assert.Equal(t, "tool failed", out)
 }
 
 func TestWrappedTool_Execute_propagatesCallToolError(t *testing.T) {

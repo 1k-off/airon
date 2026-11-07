@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/1node/airon/internal/executor"
-	"github.com/1node/airon/internal/mcp"
-	"github.com/1node/airon/internal/provider"
+	"github.com/1k-off/airon/internal/executor"
+	"github.com/1k-off/airon/internal/mcp"
+	"github.com/1k-off/airon/internal/provider"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -98,7 +98,7 @@ func TestRoundTripperWithHeaders_setsHeaders(t *testing.T) {
 
 	client := httpClientWithHeaders(map[string]string{
 		"Authorization": "Bearer test-token",
-	})
+	}, defaultHTTPTimeout)
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
 

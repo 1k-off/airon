@@ -1,4 +1,4 @@
-module github.com/1node/airon
+module github.com/1k-off/airon
 
 go 1.25.5
 

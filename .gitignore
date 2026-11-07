@@ -6,6 +6,10 @@ coverage.out
 .env
 .idea/
 .vscode/
-docs/
+docs/*
+!docs/superpowers/
+!docs/superpowers/**
+!docs/runbooks/
+!docs/runbooks/**
 .cursor/
 examples/*/workspace/

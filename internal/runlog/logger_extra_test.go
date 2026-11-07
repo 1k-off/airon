@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/1node/airon/internal/workspace"
+	"github.com/1k-off/airon/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

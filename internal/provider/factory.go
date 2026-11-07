@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/1node/airon/internal/config"
+	"github.com/1k-off/airon/internal/config"
 )
 
 // NewFromConfig constructs a provider implementation from configuration.

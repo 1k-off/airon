@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/1node/airon/internal/config"
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/tool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,6 +170,8 @@ func TestExecutor_Run_toolExecuteErrorIsCaptured(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Steps[0].ToolCalls, 1)
 	assert.Contains(t, result.Steps[0].ToolCalls[0].Result, "tool exploded")
+	assert.Contains(t, result.Steps[0].ToolCalls[0].Error, "tool exploded")
+	assert.Equal(t, 1, result.Steps[0].ToolCalls[0].Depth)
 }
 
 func TestNewExecutor_defaultsMaxToolRounds(t *testing.T) {

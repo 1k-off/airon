@@ -4,18 +4,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/tool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type ServerConfig struct {
-	Name      string
-	Transport string
-	Command   string
-	Args      []string
-	Env       map[string]string
-	URL       string
-	Headers   map[string]string
+	Name           string
+	Transport      string
+	Command        string
+	Args           []string
+	Env            map[string]string
+	URL            string
+	Headers        map[string]string
+	Timeout        string
+	EnvPassthrough *bool
 }
 
 type sessionClient interface {
@@ -39,7 +41,7 @@ func Connect(ctx context.Context, cfg ServerConfig) (*Client, error) {
 		return nil, fmt.Errorf("mcp server %q: %w", cfg.Name, err)
 	}
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "airon", Version: "v0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "airon", Version: ClientVersion}, nil)
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connect mcp server %q: %w", cfg.Name, err)

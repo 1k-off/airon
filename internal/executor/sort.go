@@ -3,7 +3,7 @@ package executor
 import (
 	"fmt"
 
-	"github.com/1node/airon/internal/config"
+	"github.com/1k-off/airon/internal/config"
 )
 
 // SortPrompts topologically sorts prompts by DependsOn using Kahn's algorithm.

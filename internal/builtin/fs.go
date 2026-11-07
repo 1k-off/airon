@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/1node/airon/internal/tool"
-	"github.com/1node/airon/internal/workspace"
+	"github.com/1k-off/airon/internal/tool"
+	"github.com/1k-off/airon/internal/workspace"
 )
 
 func NewFSTools(ws *workspace.Manager) []tool.Tool {
@@ -32,7 +32,7 @@ func (t *fsReadTool) Parameters() map[string]any {
 				"description": "Path to file relative to workspace root.",
 			},
 		},
-		"required": []any{"path"},
+		"required": []string{"path"},
 	}
 }
 
@@ -73,7 +73,7 @@ func (t *fsWriteTool) Parameters() map[string]any {
 				"description": "File contents to write.",
 			},
 		},
-		"required": []any{"path", "content"},
+		"required": []string{"path", "content"},
 	}
 }
 

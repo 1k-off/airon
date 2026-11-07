@@ -140,9 +140,13 @@ func toAnthropicParams(req CompletionRequest, defaultModel string) (anthropic.Me
 		})
 	}
 
+	maxTokens := int64(4096)
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		maxTokens = int64(*req.MaxTokens)
+	}
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model),
-		MaxTokens: 4096,
+		MaxTokens: maxTokens,
 		Messages:  messages,
 		Tools:     tools,
 	}

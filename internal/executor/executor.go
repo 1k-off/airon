@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/1node/airon/internal/config"
-	"github.com/1node/airon/internal/depth"
-	"github.com/1node/airon/internal/provider"
-	"github.com/1node/airon/internal/template"
-	"github.com/1node/airon/internal/tool"
+	"github.com/1k-off/airon/internal/config"
+	"github.com/1k-off/airon/internal/depth"
+	"github.com/1k-off/airon/internal/provider"
+	"github.com/1k-off/airon/internal/template"
+	"github.com/1k-off/airon/internal/tool"
 )
 
 type RunInput struct {
@@ -49,18 +49,19 @@ type RunResult struct {
 }
 
 type ExecutorConfig struct {
-	Provider      provider.Provider
-	Registry      *tool.Registry
-	Prompts       []config.Prompt
-	Model         string
-	Temperature   *float64
-	MaxToolRounds int
-	OnDelta       func(string)
+	Provider       provider.Provider
+	Registry       *tool.Registry
+	Prompts        []config.Prompt
+	Model          string
+	Temperature    *float64
+	MaxTokens      *int
+	MaxToolRounds  int
+	OnDelta        func(string)
 	OnStepComplete func(StepResult)
-	SaveOutputs   bool
-	Workspace     OutputWriter
-	FileReader    template.FileReader
-	UsageTracker  *provider.UsageTracker
+	SaveOutputs    bool
+	Workspace      OutputWriter
+	FileReader     template.FileReader
+	UsageTracker   *provider.UsageTracker
 }
 
 // OutputWriter persists step outputs.
@@ -69,18 +70,19 @@ type OutputWriter interface {
 }
 
 type Executor struct {
-	provider      provider.Provider
-	registry      *tool.Registry
-	prompts       []config.Prompt
-	model         string
-	temperature   *float64
-	maxToolRounds int
+	provider       provider.Provider
+	registry       *tool.Registry
+	prompts        []config.Prompt
+	model          string
+	temperature    *float64
+	maxTokens      *int
+	maxToolRounds  int
 	onDelta        func(string)
 	onStepComplete func(StepResult)
 	saveOutputs    bool
-	workspace     OutputWriter
-	fileReader    template.FileReader
-	usageTracker  *provider.UsageTracker
+	workspace      OutputWriter
+	fileReader     template.FileReader
+	usageTracker   *provider.UsageTracker
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
@@ -93,18 +95,19 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	copy(promptsCopy, cfg.Prompts)
 
 	return &Executor{
-		provider:      cfg.Provider,
-		registry:      cfg.Registry,
-		prompts:       promptsCopy,
-		model:         cfg.Model,
-		temperature:   cfg.Temperature,
-		maxToolRounds: maxToolRounds,
+		provider:       cfg.Provider,
+		registry:       cfg.Registry,
+		prompts:        promptsCopy,
+		model:          cfg.Model,
+		temperature:    cfg.Temperature,
+		maxTokens:      cfg.MaxTokens,
+		maxToolRounds:  maxToolRounds,
 		onDelta:        cfg.OnDelta,
 		onStepComplete: cfg.OnStepComplete,
 		saveOutputs:    cfg.SaveOutputs,
-		workspace:     cfg.Workspace,
-		fileReader:    cfg.FileReader,
-		usageTracker:  cfg.UsageTracker,
+		workspace:      cfg.Workspace,
+		fileReader:     cfg.FileReader,
+		usageTracker:   cfg.UsageTracker,
 	}
 }
 
@@ -227,6 +230,7 @@ func (e *Executor) runStep(
 			Messages:    messages,
 			Tools:       tools,
 			Temperature: e.temperature,
+			MaxTokens:   e.maxTokens,
 			OnDelta:     e.onDelta,
 		})
 		if err != nil {
@@ -246,15 +250,16 @@ func (e *Executor) runStep(
 		for _, call := range resp.ToolCalls {
 			callStart := time.Now()
 			target, ok := allowed[call.Name]
+			toolCtx := depth.WithIncrement(ctx)
 			var toolResult string
 			var execErr error
 			if !ok {
 				toolResult = fmt.Sprintf("error: tool %q is not allowed in this step", call.Name)
+				execErr = fmt.Errorf("tool %q is not allowed in this step", call.Name)
 			} else {
-				toolResult, execErr = target.Execute(depth.WithIncrement(ctx), []byte(call.Arguments))
+				toolResult, execErr = target.Execute(toolCtx, []byte(call.Arguments))
 				if execErr != nil {
 					toolResult = fmt.Sprintf("error: %v", execErr)
-					execErr = nil
 				}
 			}
 
@@ -264,7 +269,7 @@ func (e *Executor) runStep(
 				Arguments: call.Arguments,
 				Result:    toolResult,
 				Duration:  time.Since(callStart),
-				Depth:     depth.FromContext(ctx),
+				Depth:     depth.FromContext(toolCtx),
 			}
 			if execErr != nil {
 				callRecord.Error = execErr.Error()
