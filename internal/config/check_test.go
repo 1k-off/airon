@@ -102,3 +102,62 @@ func TestExpandEnvStringAllowMissing_keepsLiteral(t *testing.T) {
 	_, ok := missing["AIRON_CHECK_MISSING_X"]
 	assert.True(t, ok)
 }
+
+func TestCheck_expandsAgentsAndMCPAllowMissing(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+  base_url: ${OPENAI_BASE_URL}
+workspace:
+  path: ./workspace
+runtime:
+  timeout: ${RUN_TIMEOUT}
+agents:
+  - id: analyst
+    description: ${AGENT_DESC}
+    system_prompt: Be careful.
+    model: ${AGENT_MODEL}
+    tools: ["${AGENT_TOOL}"]
+mcp_servers:
+  - name: remote
+    transport: streamable_http
+    url: ${MCP_URL}
+    timeout: ${MCP_TIMEOUT}
+    command: ${MCP_CMD}
+    args: ["${MCP_ARG}"]
+    env:
+      TOKEN: ${MCP_TOKEN}
+    headers:
+      Authorization: Bearer ${MCP_TOKEN}
+prompts:
+  - id: step1
+    system: ${PROMPT_SYSTEM}
+    content: "go ${PROMPT_VAR}"
+    tools: ["${PROMPT_TOOL}"]
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+	for _, key := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "RUN_TIMEOUT",
+		"AGENT_DESC", "AGENT_MODEL", "AGENT_TOOL",
+		"MCP_URL", "MCP_TIMEOUT", "MCP_CMD", "MCP_ARG", "MCP_TOKEN",
+		"PROMPT_SYSTEM", "PROMPT_VAR", "PROMPT_TOOL",
+	} {
+		os.Unsetenv(key)
+	}
+
+	report, err := Check(cfgPath)
+	require.NoError(t, err)
+	require.NotNil(t, report.Config)
+	assert.Contains(t, report.MissingEnv, "AGENT_MODEL")
+	assert.Contains(t, report.MissingEnv, "MCP_TIMEOUT")
+	assert.Contains(t, report.MissingEnv, "PROMPT_TOOL")
+	require.Len(t, report.Config.Agents, 1)
+	assert.Equal(t, "${AGENT_MODEL}", report.Config.Agents[0].Model)
+	require.Len(t, report.Config.MCPServers, 1)
+	assert.Equal(t, "${MCP_TIMEOUT}", report.Config.MCPServers[0].Timeout)
+	assert.Equal(t, "Bearer ${MCP_TOKEN}", report.Config.MCPServers[0].Headers["Authorization"])
+}

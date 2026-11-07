@@ -105,6 +105,72 @@ func TestEffectiveDefaults(t *testing.T) {
 	cfg := &Config{}
 	assert.Equal(t, 10, cfg.EffectiveMaxToolRounds())
 	assert.Equal(t, 3, cfg.EffectiveMaxCallDepth())
+	assert.True(t, cfg.EffectiveLogInputs())
+	assert.False(t, cfg.EffectiveSaveOutputs())
+	assert.Equal(t, OutcomeNone, cfg.EffectiveOutcome())
+
+	falseVal := false
+	cfg.Runtime.LogInputs = &falseVal
+	cfg.Runtime.SaveOutputs = true
+	cfg.Runtime.MaxToolRounds = 20
+	cfg.Runtime.MaxCallDepth = 5
+	cfg.Runtime.Outcome = " PASS_FAIL "
+	assert.False(t, cfg.EffectiveLogInputs())
+	assert.True(t, cfg.EffectiveSaveOutputs())
+	assert.Equal(t, 20, cfg.EffectiveMaxToolRounds())
+	assert.Equal(t, 5, cfg.EffectiveMaxCallDepth())
+	assert.Equal(t, OutcomePassFail, cfg.EffectiveOutcome())
+
+	cfg.Runtime.Outcome = "none"
+	assert.Equal(t, OutcomeNone, cfg.EffectiveOutcome())
+}
+
+func TestLoad_runtimeOutcomeTimeoutAndMCPTimeout(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "airon.yaml")
+	cfg := `version: "1"
+provider:
+  type: openai
+  model: gpt-4o
+  api_key: test-key
+  max_tokens: 2048
+workspace:
+  path: ./workspace
+runtime:
+  timeout: ${RUN_TIMEOUT}
+  outcome: pass_fail
+  log_inputs: false
+  save_outputs: true
+mcp_servers:
+  - name: remote
+    transport: streamable_http
+    url: https://example.com/mcp
+    timeout: ${MCP_TIMEOUT}
+    env_passthrough: false
+    env:
+      FOO: ${MCP_FOO}
+prompts:
+  - id: step1
+    content: "go"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o644))
+	t.Setenv("RUN_TIMEOUT", "45m")
+	t.Setenv("MCP_TIMEOUT", "90s")
+	t.Setenv("MCP_FOO", "bar")
+
+	loaded, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "45m", loaded.Runtime.Timeout)
+	assert.Equal(t, OutcomePassFail, loaded.EffectiveOutcome())
+	assert.False(t, loaded.EffectiveLogInputs())
+	assert.True(t, loaded.EffectiveSaveOutputs())
+	require.NotNil(t, loaded.Provider.MaxTokens)
+	assert.Equal(t, 2048, *loaded.Provider.MaxTokens)
+	require.Len(t, loaded.MCPServers, 1)
+	assert.Equal(t, "90s", loaded.MCPServers[0].Timeout)
+	require.NotNil(t, loaded.MCPServers[0].EnvPassthrough)
+	assert.False(t, *loaded.MCPServers[0].EnvPassthrough)
+	assert.Equal(t, "bar", loaded.MCPServers[0].Env["FOO"])
 }
 
 func TestLoad_expandsNotifyHealthchecksURL(t *testing.T) {

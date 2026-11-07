@@ -134,7 +134,6 @@ type Agent = AgentConfig
 const (
 	defaultMaxToolRounds = 10
 	defaultMaxCallDepth  = 3
-	defaultMCPHTTPTimeout = "60s"
 )
 
 // EffectiveLogInputs reports whether run logs should include the input map.
