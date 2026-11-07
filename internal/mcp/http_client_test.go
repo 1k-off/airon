@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -79,13 +80,23 @@ func TestConnect_requiresServerName(t *testing.T) {
 }
 
 func TestBuildTransport_stdioOK(t *testing.T) {
+	cmd, args := stdioSmokeCommand()
 	transport, err := buildTransport(context.Background(), ServerConfig{
 		Transport: "stdio",
-		Command:   os.Getenv("COMSPEC"),
-		Args:      []string{"/c", "exit", "0"},
+		Command:   cmd,
+		Args:      args,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, transport)
+}
+
+// stdioSmokeCommand returns a no-op executable available on the host OS.
+// COMSPEC is Windows-only and empty on Linux CI.
+func stdioSmokeCommand() (string, []string) {
+	if runtime.GOOS == "windows" {
+		return os.Getenv("COMSPEC"), []string{"/c", "exit", "0"}
+	}
+	return "true", nil
 }
 
 func TestBuildTransport_sseOK(t *testing.T) {
