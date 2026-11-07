@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -17,14 +18,16 @@ import (
 )
 
 type recordingHandler struct {
-	mu       sync.Mutex
-	requests []string
+	mu         sync.Mutex
+	requests   []string
+	bodyTexts  []string
 }
 
 func (r *recordingHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	_, _ = io.ReadAll(req.Body)
+	body, _ := io.ReadAll(req.Body)
 	r.mu.Lock()
 	r.requests = append(r.requests, req.URL.Path)
+	r.bodyTexts = append(r.bodyTexts, string(body))
 	r.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
@@ -34,6 +37,14 @@ func (r *recordingHandler) paths() []string {
 	defer r.mu.Unlock()
 	out := make([]string, len(r.requests))
 	copy(out, r.requests)
+	return out
+}
+
+func (r *recordingHandler) bodies() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.bodyTexts))
+	copy(out, r.bodyTexts)
 	return out
 }
 
@@ -111,6 +122,38 @@ func TestApp_Run_pingsHealthchecksStartAndSuccess(t *testing.T) {
 	require.Len(t, paths, 2)
 	assert.Equal(t, "/start", paths[0])
 	assert.Equal(t, "/", paths[1])
+}
+
+func TestApp_Run_pingsHealthchecksFailOnAgentFAILOutcome(t *testing.T) {
+	handler := &recordingHandler{}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	cfgPath := writeNotifyConfig(t, server.URL)
+	// Enable pass_fail outcome on the written config.
+	raw, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	patched := strings.Replace(string(raw), "workspace:\n  path: ./workspace\n",
+		"workspace:\n  path: ./workspace\nruntime:\n  outcome: pass_fail\n", 1)
+	require.NoError(t, os.WriteFile(cfgPath, []byte(patched), 0o600))
+
+	mock := &mockProvider{responses: []provider.CompletionResponse{{Content: "FAIL: nested bak missing"}}}
+	app, err := NewAppWithProviderAndOptions(context.Background(), cfgPath, map[string]string{"input": "x"}, mock, AppOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, app.Close()) })
+	app.notifier.WithHTTPClient(server.Client())
+
+	_, err = app.Run(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "agent reported failure")
+
+	paths := handler.paths()
+	require.GreaterOrEqual(t, len(paths), 2)
+	assert.Equal(t, "/start", paths[0])
+	assert.Equal(t, "/fail", paths[len(paths)-1])
+	bodies := handler.bodies()
+	require.NotEmpty(t, bodies)
+	assert.Contains(t, bodies[len(bodies)-1], "nested bak missing")
 }
 
 func TestApp_Run_pingsHealthchecksFailOnRunError(t *testing.T) {

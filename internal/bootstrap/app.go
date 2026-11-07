@@ -253,6 +253,14 @@ func (a *App) Run(ctx context.Context) (executor.RunResult, error) {
 	result, runErr := a.executor.Run(runCtx, executor.RunInput{
 		Variables: cloneInput(a.input),
 	})
+	// Interpret agent PASS/FAIL text before healthchecks so /fail carries the
+	// verdict body and the process exits non-zero on reported failure.
+	if runErr == nil {
+		if err := evaluateAgentOutcome(a.cfg.EffectiveOutcome(), result.Steps); err != nil {
+			runErr = err
+			result.Error = err
+		}
+	}
 
 	// Post-run pings must survive cancellation of the run context (SIGINT,
 	// runtime.timeout, caller deadline) — that is exactly when operators need

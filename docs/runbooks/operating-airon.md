@@ -50,7 +50,9 @@ Retention is entirely up to you: nothing in airon prunes the workspace. A daily 
 
 ## 4. Notifications (healthchecks.io)
 
-Enable per job by setting `notify.healthchecks.url` in the YAML config. airon then:
+Enable per job by setting `notify.healthchecks.url` in the YAML config. With `runtime.outcome: pass_fail`, a final agent line starting with `FAIL` (or no `PASS`) is a run error: process exits non-zero and healthchecks receives `/fail` with that text — not only hard executor crashes.
+
+airon then:
 
 1. `GET <url>/start` before the executor runs.
 2. `GET <url>` on success, or `POST <url>/fail` with the primary error text on failure.
@@ -100,6 +102,8 @@ When a run fails, follow this order:
 |---|---|---|
 | `config: missing environment variable X` | Job references `${X}` but env is not set | Populate env in the systemd unit / scheduled task / `.env`. |
 | `runtime error: dial tcp ...: connection refused` | MCP server is down | Restart the MCP container / process, or fix the URL. |
+| `Client.Timeout exceeded while awaiting headers` | MCP tool slower than HTTP client timeout | Raise `mcp_servers[*].timeout` in the job YAML (e.g. `45m` for large restores). Default is 60s. |
+| `runtime error: agent reported failure: FAIL:…` | `runtime.outcome: pass_fail` and agent ended with `FAIL` / no `PASS` | Expected for intentional job failure — triage the FAIL text / tool errors in the run log. |
 | `unknown tool "foo"` at load | `prompts[*].tools` references a missing tool | Verify skill loaded, agent id matches, or MCP `<server>__<tool>` namespace is correct. |
 | Step never finishes / hits `max_tool_rounds` | LLM caught in a tool loop | Tighten the system prompt, reduce tool scope for that step, or lower `max_tool_rounds` while debugging. |
 | Healthchecks flapping / paged missed run | Job crashed before `Start` ping, or notifier disabled | Check exit code + logs. If disabled intentionally, pause the healthchecks check. |

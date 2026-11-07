@@ -13,17 +13,19 @@ provider:
   type: openai              # or "anthropic"
   model: gpt-4o-mini
   api_key: ${OPENAI_API_KEY}
+  # max_tokens: 4096        # optional completion cap
 
 workspace:
   path: ./workspace         # sandboxed root for built-in fs tools
 
 runtime:
   max_tool_rounds: 20       # per prompt step
-  max_call_depth: 3         # nesting: step→agent→skill fits in 3 after depth fix
+  max_call_depth: 3         # nesting: step→agent→skill fits in 3
   timeout: 45m              # optional whole-run deadline (Go duration)
   stream: false
   save_outputs: true        # persist each step output to workspace/outputs/<step_id>.md
   log_inputs: true          # set false to omit input map from run JSON (secrets still redacted)
+  # outcome: pass_fail      # FAIL / missing PASS → non-zero exit + healthchecks /fail
 
 log:
   level: info
@@ -46,7 +48,7 @@ mcp_servers:
   - name: backup
     transport: streamable_http
     url: ${BACKUP_CHECK_MCP_URL}
-    timeout: 60s                # HTTP client timeout (default 60s)
+    timeout: 45m                # HTTP client timeout (default 60s — raise for long tools)
     # env_passthrough: false    # for stdio: do not inherit host env (API keys)
     headers:
       Authorization: Bearer ${MCP_TOKEN}
@@ -97,9 +99,9 @@ airon supports three transports:
 
 | Transport | Required fields | When to use |
 |---|---|---|
-| `stdio` (default) | `command`, optional `args`, `env` | Local process MCP server |
-| `streamable_http` | `url`, optional `headers` | Long-running remote MCP (e.g. `backup-check-mcp` on Docker) |
-| `sse` | `url`, optional `headers` | Legacy SSE endpoints |
+| `stdio` (default) | `command`, optional `args`, `env`, `env_passthrough` | Local process MCP server |
+| `streamable_http` | `url`, optional `headers`, `timeout` | Long-running remote MCP (e.g. `backup-check-mcp` on Docker) |
+| `sse` | `url`, optional `headers`, `timeout` | Legacy SSE endpoints |
 
 Example — remote HTTP MCP protected by a bearer token:
 
@@ -108,6 +110,7 @@ mcp_servers:
   - name: backup
     transport: streamable_http
     url: ${BACKUP_CHECK_MCP_URL}   # e.g. http://localhost:8080/mcp
+    timeout: 45m
     headers:
       Authorization: Bearer ${MCP_TOKEN}
 ```
@@ -116,23 +119,25 @@ Every tool the server advertises becomes available under the namespace `backup__
 
 ### Concrete pattern: backup-check
 
-The `util/backup-check` project in the onsite-infrastructure repo runs an HTTP MCP server (`backup-check-mcp`) inside Docker Compose. An airon job that drives it typically:
+The `util/backup-check` project in onsite-infrastructure runs an HTTP MCP server (`backup-check-mcp`) in Docker/Podman. A typical airon job:
 
-1. Sets `notify.healthchecks.url` to a per-job UUID.
-2. Configures a single `streamable_http` MCP server pointing at `${BACKUP_CHECK_MCP_URL}`.
-3. Uses a single prompt with a high `runtime.max_tool_rounds` (e.g. 40) and a system prompt (via a skill) that mandates: `pick_next` → `download` → `restore` → `inspect_schema` → `write_report` → `update_registry` → `cleanup`.
-4. Guarantees one database per run (batch = 1), never touches non-`verify_` databases.
+1. Sets `notify.healthchecks.url` and `runtime.outcome: pass_fail` (agent must end with `PASS:` / `FAIL:`).
+2. Points `streamable_http` at the MCP (`url` + `timeout: 45m` — large bacpac restores exceed the 60s default).
+3. Uses one prompt + `backup-verifier` skill with high `max_tool_rounds` (e.g. 40).
+4. Workflow: orient (`pick_next` or `catalog_get`) → download → `extract_archive` when nested → restore → inspect/query → report → registry → cleanup.
+5. Guarantees one database per run; never touches non-`verify_*` databases. Cleanup may no-op when the MCP sets `CLEANUP_ENABLED=false` (onsite gate).
 
-See `util/backup-check/job/airon.yaml` for the concrete config once Task 9 lands.
+See `util/backup-check/job/airon.yaml` and `util/backup-check/RUNBOOK.md` in onsite-infrastructure.
 
 ## 4. Template variables
 
-- `{{input}}` — CLI `--input "text"` (or `Options.Input["input"]` when embedding).
+- `{{input}}` — CLI `--input "text"` (or `Options.Input["input"]` when embedding). **Required** if referenced.
+- `{{input?}}` — same key, but optional (expands to `""` when omitted). Use for jobs that also support empty input / `pick_next`.
 - `{{step_id}}` — output text from a prior prompt step.
-- `{{var}}` — anything supplied via CLI `--var key=value` (or `Options.Input`).
-- `{{file:relative/path}}` — inline file contents resolved relative to the config directory.
+- `{{var}}` / `{{var?}}` — anything supplied via CLI `--var key=value` (or `Options.Input`).
+- `{{file:relative/path}}` — inline file contents resolved under the sandboxed `workspace.path` (not the config directory).
 
-Missing template variables fail the run with a clear error. That is why `depends_on` matters: it prevents a step from running before its upstream step has produced output.
+Missing **required** template variables fail the run with a clear error. That is why `depends_on` matters: it prevents a step from running before its upstream step has produced output.
 
 ## 5. Testing your job
 
@@ -140,14 +145,17 @@ Unit-testable pieces:
 
 - **Config load** — run `go test ./internal/config/...` after any parsing changes.
 - **Job dry-run** — invoke with a fake input and `--no-healthchecks`, e.g. `airon run --config ./job/airon.yaml --no-healthchecks --input "test"`.
+- **Offline gate** — `airon check --config ./job/airon.yaml` (add `--strict` in CI).
 - **Embedded** — the `pkg/airon` public API takes an `Options` struct with the same knobs and never calls `os.Exit`, which makes it easy to unit-test the wrapper in isolation.
 
-For live MCP integration, run the MCP server locally first (e.g. `docker compose -f util/backup-check/docker/docker-compose.yml up mssql backup-check-mcp`) and set `BACKUP_CHECK_MCP_URL=http://localhost:8080/mcp` before running airon.
+For live MCP integration, run the MCP server locally first (e.g. `docker compose -f util/backup-check/docker/docker-compose.yml up mssql backup-check-mcp`) and point the job URL at `http://localhost:8080/mcp` before running airon.
 
 ## 6. Common pitfalls
 
 - **Unknown tool** — `prompts[*].tools` must reference either a built-in, a loaded skill, an agent id, or an MCP `<server>__<tool>` symbol. Anything else fails at load.
 - **Cyclic prompts** — `depends_on` must be a DAG; cycles fail at load.
 - **Env expansion missing** — a `${VAR}` reference with no environment value fails immediately. This is intentional so bad configs do not silently ping the wrong URL.
-- **Long-running MCP calls** — bump `runtime.max_tool_rounds` if the LLM legitimately needs more back-and-forth. Keep `max_call_depth` conservative.
+- **MCP client timeout** — HTTP tools that run longer than `mcp_servers[*].timeout` (default 60s) fail with `Client.Timeout exceeded`. Raise the per-server timeout; `runtime.timeout` is a separate whole-run deadline.
+- **Long tool loops** — bump `runtime.max_tool_rounds` if the LLM legitimately needs more back-and-forth. Keep `max_call_depth` conservative.
+- **Required `{{input}}` without `--input`** — use `{{input?}}` when the job must also run with empty input.
 - **Skill/system prompt drift** — skills are just files; changes take effect on the next run without a rebuild.

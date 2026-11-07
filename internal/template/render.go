@@ -5,14 +5,15 @@ import (
 	"regexp"
 )
 
-var variablePattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
+var variablePattern = regexp.MustCompile(`\{\{(\w+)(\?)?\}\}`)
 var filePattern = regexp.MustCompile(`\{\{file:([a-zA-Z0-9_./\-]+)\}\}`)
 
 // FileReader loads file contents for {{file:path}} placeholders.
 type FileReader func(path string) (string, error)
 
 // Render replaces {{variable}} placeholders with values from vars.
-// Variable names must contain word characters only. Missing variables return an error.
+// Variable names must contain word characters only. Missing required variables
+// return an error. A trailing ? makes the variable optional ({{input?}} → "").
 func Render(template string, vars map[string]string) (string, error) {
 	return RenderWithFiles(template, vars, nil)
 }
@@ -50,9 +51,14 @@ func renderVariables(template string, vars map[string]string) (string, error) {
 	var missing string
 
 	out := variablePattern.ReplaceAllStringFunc(template, func(match string) string {
-		name := variablePattern.FindStringSubmatch(match)[1]
+		sub := variablePattern.FindStringSubmatch(match)
+		name := sub[1]
+		optional := sub[2] == "?"
 		value, ok := vars[name]
 		if !ok {
+			if optional {
+				return ""
+			}
 			missing = name
 			return match
 		}

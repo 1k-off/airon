@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Config is the top-level airon runtime configuration.
 type Config struct {
 	Version    string            `yaml:"version"`
@@ -53,6 +55,28 @@ type RuntimeConfig struct {
 	// LogInputs controls whether template input vars are persisted to the run
 	// JSON. Sensitive-looking keys are always redacted when logging.
 	LogInputs *bool `yaml:"log_inputs"`
+	// Outcome controls post-run interpretation of agent text. Empty / "none"
+	// leaves executor success as the only signal. "pass_fail" requires a
+	// PASS/FAIL verdict line in step output: FAIL (or missing PASS) becomes a
+	// run error so healthchecks /fail and the process exits non-zero.
+	Outcome string `yaml:"outcome"`
+}
+
+// Outcome mode values for RuntimeConfig.Outcome.
+const (
+	OutcomeNone     = ""
+	OutcomeNoneAlt  = "none"
+	OutcomePassFail = "pass_fail"
+)
+
+// EffectiveOutcome returns the normalized outcome mode.
+func (c *Config) EffectiveOutcome() string {
+	switch strings.ToLower(strings.TrimSpace(c.Runtime.Outcome)) {
+	case OutcomePassFail:
+		return OutcomePassFail
+	default:
+		return OutcomeNone
+	}
 }
 
 // LogConfig holds logging settings.

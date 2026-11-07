@@ -14,7 +14,8 @@ Module: `github.com/1k-off/airon` · License: [MIT](./LICENSE)
 ## Install
 
 ```bash
-go install github.com/1k-off/airon/cmd/airon@latest   # or @v0.x.y once tagged
+go install github.com/1k-off/airon/cmd/airon@v0.1.0
+# or: go install github.com/1k-off/airon/cmd/airon@latest
 # or from a clone (stamps version via git describe):
 make build
 ```
@@ -57,14 +58,17 @@ Nested skill/agent calls are included in the step that invoked them.
 ## Config Summary
 
 - `version`: runtime config version (`"1"`).
-- `provider`: model provider settings (`type`, `model`, `api_key`, optional `base_url`, `temperature`).
+- `provider`: model provider settings (`type`, `model`, `api_key`, optional `base_url`, `temperature`, `max_tokens`).
   - Supported providers: `openai`, `anthropic`.
 - `workspace.path`: sandbox root used by built-in filesystem tools.
 - `runtime`: execution options:
   - `max_tool_rounds` (default 10)
   - `max_call_depth` (default 3)
+  - `timeout` — optional whole-run deadline (Go duration, e.g. `45m`)
   - `stream` — enable streaming in config (overridden by CLI `--stream`)
   - `save_outputs` — write each step output to `workspace/outputs/<step_id>.md`
+  - `log_inputs` — include template input map in run JSON (default true; secrets still redacted)
+  - `outcome` — optional `pass_fail`: require a `PASS`/`FAIL` verdict line in step output; `FAIL` (or missing `PASS`) makes the run error so the process exits non-zero and healthchecks gets `/fail` with that text. Default (empty/`none`) ignores agent text and only fails on executor errors.
 - `skills`: list of skill file or directory paths.
 - `agents`: optional agent tools with system prompt and tool scope.
 - `mcp_servers`: optional MCP servers (`stdio`, `streamable_http`, `sse`), each namespaced as `<server>__<tool>`.
@@ -76,9 +80,11 @@ Nested skill/agent calls are included in the step that invoked them.
 
 | Transport | Required fields | Example |
 |---|---|---|
-| `stdio` (default) | `command`, optional `args`, `env` | Local process MCP server |
-| `streamable_http` | `url`, optional `headers` | Remote HTTP MCP endpoint |
-| `sse` | `url`, optional `headers` | Legacy SSE MCP endpoint |
+| `stdio` (default) | `command`, optional `args`, `env`, `env_passthrough` | Local process MCP server |
+| `streamable_http` | `url`, optional `headers`, `timeout` | Remote HTTP MCP endpoint |
+| `sse` | `url`, optional `headers`, `timeout` | Legacy SSE MCP endpoint |
+
+`timeout` on HTTP/SSE is a Go duration (default **60s**). Raise it for long tool calls. `env_passthrough: false` on stdio stops inheriting the host environment into the child.
 
 ```yaml
 mcp_servers:
@@ -86,19 +92,22 @@ mcp_servers:
     transport: stdio
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+    # env_passthrough: false   # do not leak host API keys into the child
 
   - name: remote
     transport: streamable_http
     url: http://localhost:8080/mcp
+    timeout: 45m               # HTTP client timeout (default 60s)
     headers:
       Authorization: Bearer ${MCP_TOKEN}
 ```
 
 ### Template variables
 
-- `{{input}}` — set via CLI `--input`
+- `{{input}}` — set via CLI `--input` (required if used)
+- `{{input?}}` — same, but optional (empty when `--input` omitted)
 - `{{step_id}}` — output from a prior prompt step
-- `{{var}}` — additional vars via `--var key=value`
+- `{{var}}` / `{{var?}}` — additional vars via `--var key=value` (optional with `?`)
 - `{{file:relative/path}}` — inline file contents from the sandboxed `workspace.path`
 
 ## CLI

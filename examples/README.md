@@ -1,5 +1,7 @@
 # airon examples
 
+Teaching configs for common patterns. They intentionally stay small — advanced knobs (`runtime.outcome: pass_fail`, `mcp_servers[].timeout`, `{{input?}}`, Healthchecks) are documented in the [README](../README.md) and [writing-a-job](../docs/runbooks/writing-a-job.md) runbook; production backup-verify lives in onsite-infrastructure `util/backup-check/job/`.
+
 | Example | What it demonstrates |
 |---------|----------------------|
 | [simple](./simple/) | Minimal pipeline with skills, agent, and `depends_on` |

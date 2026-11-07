@@ -19,6 +19,7 @@ mcp_servers:
   - name: fmhy
     transport: streamable_http
     url: https://fmhy-mcp.ken.tools/mcp
+    # timeout: 60s   # HTTP client timeout (default). Raise for long-running tools.
 
 prompts:
   - id: explore
