@@ -1,0 +1,17 @@
+.git
+.github
+.cursor
+bin
+docs
+examples
+scripts
+*.md
+*.exe
+*.test
+coverage.out
+.env
+.idea
+.vscode
+Makefile
+.dockerignore
+Dockerfile

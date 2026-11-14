@@ -1,0 +1,53 @@
+version: "1"
+
+provider:
+  type: openai
+  model: gpt-4o-mini
+  api_key: ${OPENAI_API_KEY}
+
+workspace:
+  path: ./workspace
+
+runtime:
+  max_tool_rounds: 12
+  max_call_depth: 2
+
+log:
+  level: info
+
+mcp_servers:
+  - name: fs
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "./workspace"
+
+prompts:
+  - id: scan
+    system: |
+      You inspect the workspace via MCP filesystem tools only.
+    content: |
+      Topic context: {{input}}
+
+      1. List allowed directories.
+      2. Build a directory tree (depth 2).
+      3. Summarize what files exist and what is missing for the topic.
+    tools:
+      - fs__list_allowed_directories
+      - fs__list_directory
+      - fs__directory_tree
+
+  - id: write_notes
+    depends_on: [scan]
+    content: |
+      Using the scan results below, write a short notes file for the topic.
+
+      Scan:
+      {{scan}}
+
+      Save as notes.md in the workspace root via MCP write_file.
+    tools:
+      - fs__write_file
+      - fs__read_file
